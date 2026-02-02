@@ -1,0 +1,379 @@
+.cheque-preview {
+  display: flex;
+  justify-content: center;
+  padding: 20px;
+}
+
+.cheque {
+  width: 20.4cm;
+  height: 9.5cm;
+  background: white;
+  border: 2px solid #333;
+  position: relative;
+  padding: 0;
+  font-family: 'Times New Roman', serif;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+/* Header Section */
+.cheque-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.2cm;
+  padding: 0.3cm 0.3cm 0.2cm 0.3cm;
+  border-bottom: 1px solid #ccc;
+}
+
+.bank-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.3cm;
+}
+
+.logo-circle {
+  width: 0.8cm;
+  height: 0.8cm;
+  background: #e67e22;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 0.5cm;
+}
+
+.bank-name {
+  font-size: 0.35cm;
+  line-height: 1.2;
+}
+
+.hindi-name {
+  font-weight: bold;
+  color: #333;
+}
+
+.english-name {
+  color: #666;
+  font-size: 0.3cm;
+}
+
+.validity-text {
+  font-size: 0.25cm;
+  color: #666;
+  text-align: right;
+  max-width: 4cm;
+  line-height: 1.2;
+}
+
+/* Branch Info */
+.branch-info {
+  font-size: 0.28cm;
+  color: #333;
+  margin-bottom: 0.3cm;
+  margin-left: 0.3cm;
+  line-height: 1.3;
+}
+
+.branch-name {
+  font-weight: 600;
+}
+
+.ifsc-code {
+  color: #666;
+  font-size: 0.25cm;
+}
+
+/* Date Field - positioned at top right (15.7cm from left edge, 1cm from top) */
+.date-field {
+  position: absolute;
+  top: 1cm;
+  left: 15.7cm; /* Exact measurement: 15.7cm from left edge */
+  text-align: left;
+  font-size: 0.3cm;
+  margin: 0;
+  padding: 0;
+}
+
+.date-label {
+  display: block;
+  margin-bottom: 0.1cm;
+  color: #666;
+  text-align: left;
+  margin-left: 0;
+  padding-left: 0;
+}
+
+/* Date cells - individual cells for each digit */
+/* First cell starts exactly at 15.7cm from left */
+.date-cells {
+  display: flex;
+  gap: 0.05cm;
+  justify-content: flex-start;
+  margin: 0;
+  padding: 0;
+}
+
+.date-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border: 1px solid #333;
+  width: 0.35cm;
+  height: 0.5cm;
+  position: relative;
+  background: white;
+}
+
+.date-cell-label {
+  font-size: 0.15cm;
+  color: #999;
+  line-height: 0.15cm;
+  position: absolute;
+  top: 0.02cm;
+  font-weight: normal;
+}
+
+.date-cell-value {
+  font-size: 0.25cm;
+  font-weight: bold;
+  color: #000;
+  line-height: 0.5cm;
+  text-align: center;
+  width: 100%;
+  font-family: 'Courier New', monospace;
+}
+
+/* Pay To Field - 2.7cm from left */
+.pay-field {
+  position: absolute;
+  top: 2.2cm;
+  left: 2.7cm;
+  display: flex;
+  align-items: baseline;
+  gap: 0.3cm;
+  font-size: 0.35cm;
+  width: 14cm;
+}
+
+.pay-label {
+  font-weight: bold;
+  color: #333;
+}
+
+.pay-value {
+  flex: 1;
+  border-bottom: 1px solid #333;
+  min-height: 0.4cm;
+  padding-bottom: 0.05cm;
+  font-weight: 600;
+}
+
+.or-bearer {
+  font-size: 0.3cm;
+  color: #666;
+}
+
+/* Amount in Words - 3.5cm from top (baseline), 16cm width starting after "Rupees रुपये" */
+/* With font-size 0.35cm and line-height, adjust top to align baseline at 3.5cm */
+.amount-words-field {
+  position: absolute;
+  top: 3.2cm; /* Adjusted so baseline is at 3.5cm (3.5cm - line-height offset) */
+  left: 2.7cm; /* "Rupees रुपये" starts at 2.7cm */
+  width: 18.7cm; /* Full width available (20.4cm - 2.7cm - some margin) */
+  font-size: 0.35cm;
+  display: flex;
+  align-items: baseline;
+  gap: 0.2cm;
+  line-height: 1.2;
+}
+
+.rupees-label {
+  color: #333;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.amount-words-underline-block {
+  flex: 1;
+  border-bottom: 2px solid #333;
+  min-height: 0.45cm;
+  position: relative;
+  padding-bottom: 0.05cm;
+  max-width: 16cm; /* 16cm width as per measurement */
+}
+
+.amount-words-value {
+  font-weight: 600;
+  text-transform: uppercase;
+  line-height: 1.2;
+  min-height: 0.4cm;
+  display: block;
+  word-wrap: break-word;
+}
+
+/* Amount in Numbers - positioned at 16cm from left, aligned with amount in words (3.5cm from top) */
+.amount-numbers-field {
+  position: absolute;
+  top: 3.2cm; /* Aligned with amount in words (same baseline adjustment) */
+  left: 16cm; /* 16cm from left edge (after the 16cm width of amount in words) */
+  display: flex;
+  align-items: baseline;
+  gap: 0.15cm;
+  font-size: 0.35cm;
+  line-height: 1.2;
+}
+
+.rupee-symbol {
+  font-size: 0.4cm;
+  font-weight: bold;
+  color: #333;
+  line-height: 1;
+}
+
+.amount-numbers-box {
+  border: 1.5px solid #333;
+  border-radius: 2px;
+  padding: 0.05cm 0.15cm;
+  min-width: 2.5cm;
+  min-height: 0.4cm;
+  background: #fafafa;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.amount-numbers-value {
+  font-weight: bold;
+  font-size: 0.38cm;
+  text-align: right;
+  font-family: 'Courier New', monospace;
+  letter-spacing: 0.02cm;
+  color: #000;
+  line-height: 1;
+}
+
+/* Account Number Field */
+.account-field {
+  position: absolute;
+  top: 4.8cm;
+  left: 2.7cm;
+  display: flex;
+  align-items: baseline;
+  gap: 0.3cm;
+  font-size: 0.3cm;
+}
+
+.account-label {
+  color: #333;
+  font-weight: 600;
+}
+
+.account-value {
+  border-bottom: 1px solid #333;
+  min-height: 0.35cm;
+  padding-bottom: 0.05cm;
+  min-width: 3cm;
+  font-weight: 600;
+}
+
+.account-type {
+  font-size: 0.28cm;
+  color: #666;
+  margin-left: 0.3cm;
+}
+
+/* Payee Name */
+.payee-name {
+  position: absolute;
+  top: 5.5cm;
+  left: 2.7cm;
+  font-size: 0.3cm;
+  color: #666;
+  font-style: italic;
+}
+
+/* Signature Line */
+.signature-line {
+  position: absolute;
+  bottom: 1.5cm;
+  right: 0.5cm;
+  text-align: right;
+  width: 4cm;
+}
+
+.signature-space {
+  border-bottom: 1px solid #333;
+  min-height: 0.5cm;
+  margin-bottom: 0.1cm;
+}
+
+.authorized-signatory {
+  font-size: 0.25cm;
+  color: #666;
+}
+
+/* Footer */
+.cheque-footer {
+  position: absolute;
+  bottom: 0.3cm;
+  left: 0.3cm;
+  right: 0.3cm;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  font-size: 0.25cm;
+  padding: 0;
+}
+
+.footer-text {
+  color: #666;
+  line-height: 1.2;
+  max-width: 8cm;
+}
+
+.micr-code {
+  font-family: 'Courier New', monospace;
+  font-size: 0.3cm;
+  color: #333;
+  font-weight: 600;
+  letter-spacing: 0.05cm;
+}
+
+/* Print Styles */
+@media print {
+  .cheque-preview {
+    padding: 0;
+  }
+
+  .cheque {
+    box-shadow: none;
+    border: 1px solid #000;
+    page-break-inside: avoid;
+  }
+
+  @page {
+    size: A4 landscape;
+    margin: 0;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+  }
+}
+
+/* Responsive adjustments for screen view */
+@media (max-width: 1200px) {
+  .cheque {
+    transform: scale(0.8);
+    transform-origin: top center;
+  }
+}
+
+@media (max-width: 768px) {
+  .cheque {
+    transform: scale(0.6);
+  }
+}

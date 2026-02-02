@@ -1,0 +1,123 @@
+/* Print-only styles - Only visible when printing */
+.cheque-print-container {
+  display: none;
+}
+
+/* Print styles - Only show fillable fields */
+@media print {
+  /* Hide everything else */
+  body * {
+    visibility: hidden;
+  }
+
+  .cheque-print-container,
+  .cheque-print-container * {
+    visibility: visible;
+  }
+
+  .cheque-print-container {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 20.4cm;
+    height: 9.5cm;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+  }
+
+  /* Date Field - Exact measurements: 1cm from top, 15.7cm from left */
+  .print-date-field {
+    position: absolute;
+    top: 1cm;
+    left: 15.9cm;
+    font-size: 0.50cm;
+    font-weight: bold;
+    font-family: 'Courier New', monospace;
+    color: #000;
+    letter-spacing: 0.18cm;
+    width: 4.4cm;
+    text-align: left;
+    line-height: 1;
+    background: transparent;
+  }
+
+  /* Pay To Field - 2.7cm from left edge (where "Pay" line starts) */
+  /* The actual payee name starts after "Pay" text, approximately 0.5cm after 2.7cm */
+  .print-pay-field {
+    position: absolute;
+    top: 2.2cm; /* Approximate position below branch info */
+    left: 3.2cm; /* 2.7cm (Pay line) + ~0.5cm (after "Pay" text) */
+    font-size: 0.38cm;
+    font-weight: 600;
+    font-family: 'Times New Roman', serif;
+    color: #000;
+    width: 13cm;
+    line-height: 1.1;
+    text-transform: uppercase;
+    background: transparent;
+  }
+
+  /* Amount in Words - Positioned right next to "Rupees रुपये" block */
+  /* "Rupees रुपये" is at 2.7cm from left, the text block is ~1.1cm wide */
+  /* So amount in words starts at ~3.8cm from left (right after "Rupees रुपये") */
+  /* Bottom of text (including letter height) should be at 3.5cm from top */
+  /* With font-size 0.38cm and line-height 1.3, text height is ~0.494cm */
+  /* So top position = 3.5cm - 0.494cm = ~3.0cm */
+  .print-amount-words {
+    position: absolute;
+    top: 3.0cm; /* Positioned so bottom of text is at 3.5cm (3.5cm - line-height) */
+    left: 3.8cm; /* Right after "Rupees रुपये" text block (2.7cm + ~1.1cm) */
+    font-size: 0.38cm;
+    font-weight: 600;
+    font-family: 'Times New Roman', serif;
+    color: #000;
+    max-width: 16cm; /* Maximum width - wraps if longer */
+    line-height: 1.3;
+    text-transform: uppercase;
+    background: transparent;
+    white-space: normal; /* Allow wrapping to multiple lines */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    display: block;
+  }
+
+  /* Amount in Numbers - Positioned 16cm from left edge */
+  /* This aligns with the amount in words line */
+  .print-amount-numbers {
+    position: absolute;
+    top: 3.7cm; /* Aligned with amount in words (3.5cm from top of amount line) */
+    left: 16cm; /* 16cm from left edge as specified */
+    font-size: 0.59cm;
+    font-weight: bold;
+    font-family: 'Courier New', monospace;
+    color: #000;
+    text-align: left;
+    width: 3.8cm;
+    line-height: 1.1;
+    background: transparent;
+  }
+
+  @page {
+    size: 20.4cm 9.5cm;
+    margin: 0;
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    width: 20.4cm;
+    height: 9.5cm;
+    overflow: hidden;
+    background: transparent;
+  }
+
+  #root {
+    margin: 0;
+    padding: 0;
+    width: 20.4cm;
+    height: 9.5cm;
+  }
+}
