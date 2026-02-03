@@ -99,10 +99,7 @@
     background: transparent;
   }
 
-  @page {
-    size: 20.4cm 9.5cm;
-    margin: 0;
-  }
+  /* page size moved to global index.css for consistent cheque dimensions */
 
   html,
   body {

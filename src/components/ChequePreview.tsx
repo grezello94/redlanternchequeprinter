@@ -1,5 +1,6 @@
-import { ChequeData } from '../App'
+import type { ChequeData } from '../types';
 import './ChequePreview.css'
+
 
 interface ChequePreviewProps {
   data: ChequeData

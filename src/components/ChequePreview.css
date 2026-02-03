@@ -354,8 +354,7 @@
   }
 
   @page {
-    size: A4 landscape;
-    margin: 0;
+    /* page size moved to global index.css for consistent cheque dimensions */
   }
 
   body {
