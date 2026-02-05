@@ -1,22 +1,84 @@
 import { useEffect, useState } from 'react';
-import { db } from '../firebase';
-import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { db, repairIndexedDbPersistence } from '../firebase';
+import { collection, query, where, getDocs, orderBy, limit, addDoc, serverTimestamp } from 'firebase/firestore';
 import type { ChequeData } from '../types';
 
 export default function ChequeForm({ data, onChange }: { data: ChequeData, onChange: any }) {
   const [prevDates, setPrevDates] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+
+  const isIndexedDbError = (e: any) => {
+    const msg = (e?.message || '').toString();
+    return e?.name === 'IndexedDbTransactionError' ||
+      msg.includes('IndexedDbTransactionError') ||
+      msg.includes('IDBTransaction') ||
+      msg.includes('IndexedDB');
+  };
+
+  const withIndexedDbRetry = async <T,>(fn: () => Promise<T>) => {
+    try {
+      return await fn();
+    } catch (e: any) {
+      if (isIndexedDbError(e)) {
+        const repaired = await repairIndexedDbPersistence();
+        if (repaired) {
+          try {
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('rl:db-repaired'));
+            }
+          } catch { /* no-op */ }
+          return await fn();
+        }
+      }
+      throw e;
+    }
+  };
+
+  // Save cheque to Firestore
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveMsg(null);
+    setSaveErr(null);
+    try {
+      await addDoc(collection(db, 'cheques'), {
+        ...data,
+        createdAt: serverTimestamp(),
+      });
+      setSaveMsg('Cheque saved!');
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'string'
+            ? err
+            : 'Unknown error';
+      console.error('Error saving cheque:', err);
+      setSaveErr(message);
+      setSaveMsg('Error saving cheque');
+    }
+    setSaving(false);
+  };
 
   useEffect(() => {
     if (data.payTo.length > 3) {
       const fetchMemory = async () => {
-        const q = query(
-          collection(db, "cheques"), 
-          where("payTo", "==", data.payTo),
-          orderBy("createdAt", "desc"),
-          limit(3)
-        );
-        const snap = await getDocs(q);
-        setPrevDates(snap.docs.map(doc => doc.data().date));
+        try {
+          const snap = await withIndexedDbRetry(async () => {
+            const q = query(
+              collection(db, "cheques"), 
+              where("payTo", "==", data.payTo),
+              orderBy("createdAt", "desc"),
+              limit(3)
+            );
+            return await getDocs(q);
+          });
+          setPrevDates(snap.docs.map(doc => doc.data().date));
+        } catch (err) {
+          console.error('Error fetching previous dates:', err);
+          setPrevDates([]);
+        }
       };
       fetchMemory();
     } else {
@@ -73,6 +135,18 @@ export default function ChequeForm({ data, onChange }: { data: ChequeData, onCha
       <div>
         <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Amount (Words)</label>
         <textarea className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" rows={2} value={data.amountInWords} onChange={e => onChange({...data, amountInWords: e.target.value})} placeholder="Rupees Fifty Thousand Only" />
+      </div>
+      {/* Save button */}
+      <div className="pt-4">
+        <button
+          className="bg-[#e67e22] text-white px-6 py-2 rounded-xl font-bold disabled:opacity-50"
+          onClick={handleSave}
+          disabled={saving}
+        >
+          {saving ? 'Saving...' : 'Save Cheque'}
+        </button>
+        {saveMsg && <span className="ml-3 text-sm text-slate-500">{saveMsg}</span>}
+        {saveErr && <div className="mt-2 text-xs text-red-600">Error details: {saveErr}</div>}
       </div>
     </div>
   );

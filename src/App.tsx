@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { db } from './firebase';
+import { db, repairIndexedDbPersistence } from './firebase';
 import { collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs, where } from 'firebase/firestore';
 import type { ChequeData } from './types';
 // print components are not directly imported here; we use print container markup
@@ -32,12 +32,44 @@ export default function App() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminDocs, setAdminDocs] = useState<Array<any>>([]);
+  const [dbStatus, setDbStatus] = useState<{ ok: boolean; msg?: string } | null>(null);
+  const [showPrintSetup, setShowPrintSetup] = useState(false);
+  const [systemToast, setSystemToast] = useState<string | null>(null);
+
+  const isIndexedDbError = (e: any) => {
+    const msg = (e?.message || '').toString();
+    return e?.name === 'IndexedDbTransactionError' ||
+      msg.includes('IndexedDbTransactionError') ||
+      msg.includes('IDBTransaction') ||
+      msg.includes('IndexedDB');
+  };
+
+  const withIndexedDbRetry = async <T,>(fn: () => Promise<T>) => {
+    try {
+      return await fn();
+    } catch (e: any) {
+      if (isIndexedDbError(e)) {
+        const repaired = await repairIndexedDbPersistence();
+        if (repaired) {
+          try {
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('rl:db-repaired'));
+            }
+          } catch { /* no-op */ }
+          return await fn();
+        }
+      }
+      throw e;
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
       try {
-        const q = query(collection(db, 'payees'), orderBy('name', 'asc'), limit(500));
-        const snap = await getDocs(q);
+        const snap = await withIndexedDbRetry(async () => {
+          const q = query(collection(db, 'payees'), orderBy('name', 'asc'), limit(500));
+          return await getDocs(q);
+        });
         const names = snap.docs.map(d => (d.data().name as string || '').trim()).filter(Boolean);
         setPayees(names);
         setPayeesLoaded(true);
@@ -47,6 +79,32 @@ export default function App() {
       }
     };
     load();
+  }, []);
+
+  useEffect(() => {
+    const onRepaired = () => {
+      setSystemToast('Local cache repaired, retrying...');
+      setTimeout(() => setSystemToast(null), 2500);
+    };
+    try {
+      window.addEventListener('rl:db-repaired', onRepaired as EventListener);
+    } catch { /* no-op */ }
+    return () => {
+      try {
+        window.removeEventListener('rl:db-repaired', onRepaired as EventListener);
+      } catch { /* no-op */ }
+    };
+  }, []);
+
+  // Print setup helper (one-time)
+  const PRINT_SETUP_KEY = 'rl_print_setup_done_v1';
+  useEffect(() => {
+    try {
+      const done = localStorage.getItem(PRINT_SETUP_KEY);
+      if (!done) setShowPrintSetup(true);
+    } catch (e) {
+      setShowPrintSetup(true);
+    }
   }, []);
 
   // Pending queue helpers (localStorage)
@@ -87,8 +145,10 @@ export default function App() {
     // refresh recentCheques if current payee affected
     if (data.payTo) {
       try {
-        const q = query(collection(db, 'cheques'), where('payTo', '==', data.payTo), orderBy('createdAt', 'desc'), limit(5));
-        const snap = await getDocs(q);
+        const snap = await withIndexedDbRetry(async () => {
+          const q = query(collection(db, 'cheques'), where('payTo', '==', data.payTo), orderBy('createdAt', 'desc'), limit(5));
+          return await getDocs(q);
+        });
         const items = snap.docs.map(d => ({ chequeNo: d.data().chequeNo as string, amount: d.data().amountInNumbers as string, date: d.data().date as string, payTo: d.data().payTo as string }));
         setRecentCheques(items);
       } catch (e) { console.warn('refresh after flush failed', e); }
@@ -120,8 +180,10 @@ export default function App() {
       const p = data.payTo?.trim();
       if (!p) { setRecentCheques([]); return; }
       try {
-        const q = query(collection(db, 'cheques'), where('payTo', '==', p), orderBy('createdAt', 'desc'), limit(5));
-        const snap = await getDocs(q);
+        const snap = await withIndexedDbRetry(async () => {
+          const q = query(collection(db, 'cheques'), where('payTo', '==', p), orderBy('createdAt', 'desc'), limit(3));
+          return await getDocs(q);
+        });
         const items = snap.docs.map(d => ({
           chequeNo: d.data().chequeNo as string,
           amount: d.data().amountInNumbers as string,
@@ -255,8 +317,10 @@ export default function App() {
       try {
         const payee = (lastPrinted.payTo || '').trim();
         if (payee) {
-          const q = query(collection(db, 'cheques'), where('payTo', '==', payee), orderBy('createdAt', 'desc'), limit(5));
-          const snap = await getDocs(q);
+          const snap = await withIndexedDbRetry(async () => {
+            const q = query(collection(db, 'cheques'), where('payTo', '==', payee), orderBy('createdAt', 'desc'), limit(5));
+            return await getDocs(q);
+          });
           const items = snap.docs.map(d => ({
             chequeNo: d.data().chequeNo as string,
             amount: d.data().amountInNumbers as string,
@@ -296,6 +360,28 @@ export default function App() {
         </div>
       </header>
 
+      {showPrintSetup && (
+        <div className="setup-card">
+          <div className="setup-title">One-time Print Setup (PWA)</div>
+          <div className="setup-list">
+            <div>1. Install the app (Add to Home Screen / Install App).</div>
+            <div>2. Set Epson L3250 as default printer (Windows).</div>
+            <div>3. Set custom paper size to 204mm x 95mm once in printer settings.</div>
+            <div>4. Use the PRINT button for one-tap printing (system dialog will still appear).</div>
+          </div>
+          <div className="setup-actions">
+            <button
+              onClick={() => {
+                try { localStorage.setItem(PRINT_SETUP_KEY, '1'); } catch (e) { /* ignore */ }
+                setShowPrintSetup(false);
+              }}
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+
       {saveError && (
         <div className="error-banner">
           <div>
@@ -309,6 +395,12 @@ export default function App() {
       )}
       {saveSuccess && (
         <div className="save-success" role="status">{saveSuccess}</div>
+      )}
+      {systemToast && (
+        <div className="system-toast" role="status">{systemToast}</div>
+      )}
+      {printingToast && (
+        <div className="printing-toast" role="status">{printingToast}</div>
       )}
 
       <div className="container">
@@ -339,6 +431,20 @@ export default function App() {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Show last 3 cheques for this payee */}
+            {recentCheques.length > 0 && (
+              <div style={{marginTop:8, background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:6, padding:8}}>
+                <div style={{fontSize:'0.95em', color:'#64748b', marginBottom:4}}>Last 3 cheques for this payee:</div>
+                {recentCheques.map((c, i) => (
+                  <div key={i} style={{display:'flex', justifyContent:'space-between', fontSize:'0.97em', marginBottom:2}}>
+                    <span>Date: {c.date ? `${c.date.slice(0,2)}/${c.date.slice(2,4)}/${c.date.slice(4)}` : '--/--/----'}</span>
+                    <span>₹{c.amount}</span>
+                    <span>Chq: {c.chequeNo}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -497,18 +603,31 @@ export default function App() {
           <div style={{display:'flex', gap:8}}>
             <button onClick={async () => {
               setAdminLoading(true);
+              setDbStatus(null);
               try {
                 // try load some docs from Firestore (best-effort)
-                const q = query(collection(db, 'cheques'), orderBy('createdAt', 'desc'), limit(50));
-                const snap = await getDocs(q);
+                const snap = await withIndexedDbRetry(async () => {
+                  const q = query(collection(db, 'cheques'), orderBy('createdAt', 'desc'), limit(50));
+                  return await getDocs(q);
+                });
                 setAdminDocs(snap.docs.map(d => ({ id: d.id, ...d.data() }))); 
-              } catch (e) { console.warn('admin load failed', e); setAdminDocs([]); }
+                setDbStatus({ ok: true });
+              } catch (e: any) { 
+                console.warn('admin load failed', e); 
+                setAdminDocs([]); 
+                setDbStatus({ ok: false, msg: e.message || 'Unknown error' });
+              }
               setAdminLoading(false);
             }}>Refresh</button>
             <button onClick={() => setAdminOpen(false)} style={{background:'none', border:'none', fontSize:'1.5rem', cursor:'pointer'}}>&times;</button>
           </div>
         </div>
         <div style={{padding:16}}>
+          {dbStatus && (
+            <div style={{ padding: '8px 12px', marginBottom: 16, borderRadius: 6, backgroundColor: dbStatus.ok ? '#dcfce7' : '#fee2e2', color: dbStatus.ok ? '#166534' : '#991b1b', fontSize: '0.9rem' }}>
+              {dbStatus.ok ? '✅ Database is operational' : `❌ Database Error: ${dbStatus.msg}`}
+            </div>
+          )}
           <div style={{marginBottom:12}}><strong>Pending (local)</strong></div>
           {pendingQueue.length === 0 ? (
             <div style={{color:'#888', padding:12}}>No pending items</div>

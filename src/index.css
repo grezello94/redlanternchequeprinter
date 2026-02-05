@@ -173,6 +173,30 @@ header {
 .error-actions button { margin-left: 8px; background: #111827; color: #fff; border-radius: 8px; padding: 8px 10px; border: none; cursor: pointer; }
 .error-actions button:first-child { background: #2563EB; }
 
+/* --- SETUP CARD --- */
+.setup-card {
+    max-width: 620px;
+    margin: 12px auto;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    color: #0f172a;
+    padding: 14px 16px;
+    border-radius: 14px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.04);
+}
+.setup-title { font-weight: 800; margin-bottom: 8px; }
+.setup-list { font-size: 0.95rem; color: #334155; line-height: 1.5; }
+.setup-actions { margin-top: 10px; text-align: right; }
+.setup-actions button {
+    background: #0f172a;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-weight: 700;
+}
+
 /* --- PRINTING TOAST --- */
 .printing-toast {
     position: fixed;
@@ -196,6 +220,21 @@ header {
     bottom: 150px;
     background: #ECFCCB;
     color: #14532D;
+    padding: 8px 12px;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    z-index: 999;
+    font-weight: 700;
+}
+
+/* System toast */
+.system-toast {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 150px;
+    background: #e0f2fe;
+    color: #0c4a6e;
     padding: 8px 12px;
     border-radius: 10px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.08);

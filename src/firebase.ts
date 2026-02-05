@@ -1,14 +1,14 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
+import { getFirestore, enableIndexedDbPersistence, clearIndexedDbPersistence } from "firebase/firestore";
 
-// Your web app's Firebase configuration
+// Firebase config is loaded from Vite env variables.
 const firebaseConfig = {
-  apiKey: "AIzaSyCwCl_qdv_AAi90GarYC46MPjM-dahi8Sk",
-  authDomain: "redlanternchequeprinter.firebaseapp.com",
-  projectId: "redlanternchequeprinter",
-  storageBucket: "redlanternchequeprinter.firebasestorage.app",
-  messagingSenderId: "448772923731",
-  appId: "1:448772923731:web:d30aac2fcd998c4f1fc1a6"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
 const app = initializeApp(firebaseConfig);
@@ -19,4 +19,16 @@ enableIndexedDbPersistence(db).catch((err) => {
   console.error("Persistence failed", err.code);
 });
 
-export { db };
+// Attempt to repair IndexedDB persistence when it becomes corrupted.
+// Returns true if cleared successfully.
+const repairIndexedDbPersistence = async () => {
+  try {
+    await clearIndexedDbPersistence(db);
+    return true;
+  } catch (err) {
+    console.warn("IndexedDB persistence repair failed", err);
+    return false;
+  }
+};
+
+export { db, repairIndexedDbPersistence };
