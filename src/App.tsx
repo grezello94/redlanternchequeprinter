@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db, repairIndexedDbPersistence } from './firebase';
-import { collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs, where } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs, where, startAt, endAt, startAfter, writeBatch, onSnapshot } from 'firebase/firestore';
 import type { ChequeData } from './types';
 // print components are not directly imported here; we use print container markup
 
@@ -20,11 +20,26 @@ export default function App() {
 
   const [payees, setPayees] = useState<string[]>([]);
   const [payeesLoaded, setPayeesLoaded] = useState(false);
+  const [payeesError, setPayeesError] = useState<string | null>(null);
+  const [payeesReloadKey, setPayeesReloadKey] = useState(0);
   const [filteredPayees, setFilteredPayees] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [recentCheques, setRecentCheques] = useState<Array<{ chequeNo?: string; amount?: string; date?: string; payTo?: string }>>([]);
+  const [recentCheques, setRecentCheques] = useState<Array<{ chequeNo?: string; amount?: string; date?: string; payTo?: string; issuedDay?: string; issuedAt?: string }>>([]);
   const [lastPrinted, setLastPrinted] = useState<ChequeData | null>(null);
+  const [lastPrintedAt, setLastPrintedAt] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyRecords, setHistoryRecords] = useState<Array<{ key: string; chequeNo?: string; amount?: string; date?: string; payTo?: string; issuedDay?: string; issuedAt?: string }>>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoadedAll, setHistoryLoadedAll] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyLastDoc, setHistoryLastDoc] = useState<any>(null);
+  const [historySearchInput, setHistorySearchInput] = useState('');
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyFromInput, setHistoryFromInput] = useState('');
+  const [historyToInput, setHistoryToInput] = useState('');
+  const [historyFrom, setHistoryFrom] = useState('');
+  const [historyTo, setHistoryTo] = useState('');
+  const [lastSavedRecord, setLastSavedRecord] = useState<{ payTo: string; amountInNumbers: string; date: string; chequeNo: string } | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [printingToast, setPrintingToast] = useState<string | null>(null);
@@ -35,6 +50,289 @@ export default function App() {
   const [dbStatus, setDbStatus] = useState<{ ok: boolean; msg?: string } | null>(null);
   const [showPrintSetup, setShowPrintSetup] = useState(false);
   const [systemToast, setSystemToast] = useState<string | null>(null);
+  const PAYEES_CACHE_KEY = 'rl_payees_cache_v1';
+  const PAYEES_MIGRATION_KEY = 'rl_payees_migrated_nameLower_v1';
+  const PAYEES_PAGE_SIZE = 500;
+  const CHEQUES_MIGRATION_KEY = 'rl_cheques_migrated_payToLower_v1';
+  const CHEQUES_PAGE_SIZE = 500;
+  const HISTORY_PAGE_SIZE = 200;
+  const [livePayeeMatches, setLivePayeeMatches] = useState<string[]>([]);
+  const [livePayeesLoading, setLivePayeesLoading] = useState(false);
+
+  const normalizePayee = (value: string) =>
+    (value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+  const findExistingPayee = (name: string) => {
+    const norm = normalizePayee(name);
+    if (!norm) return null;
+    return payees.find(p => normalizePayee(p) === norm) || null;
+  };
+
+  const mergePayees = (...lists: string[][]) => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const list of lists) {
+      for (const p of list) {
+        const key = normalizePayee(p);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        out.push(p);
+      }
+    }
+    return out;
+  };
+
+  const storedDateToISO = (stored: string) => {
+    if (!stored || stored.length !== 8) return '';
+    const dd = stored.slice(0,2); const mm = stored.slice(2,4); const yyyy = stored.slice(4);
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const storedDateToISOWithTime = (stored: string) => {
+    if (!stored || stored.length !== 8) return '';
+    const dd = parseInt(stored.slice(0,2), 10);
+    const mm = parseInt(stored.slice(2,4), 10);
+    const yyyy = parseInt(stored.slice(4), 10);
+    if (!dd || !mm || !yyyy) return '';
+    const d = new Date(yyyy, mm - 1, dd);
+    return d.toISOString();
+  };
+
+  const storedDateToDay = (stored: string) => {
+    if (!stored || stored.length !== 8) return '';
+    const dd = parseInt(stored.slice(0,2), 10);
+    const mm = parseInt(stored.slice(2,4), 10);
+    const yyyy = parseInt(stored.slice(4), 10);
+    if (!dd || !mm || !yyyy) return '';
+    const d = new Date(yyyy, mm - 1, dd);
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    return days[d.getDay()] || '';
+  };
+
+  const isoToDay = (iso: string) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    return days[d.getDay()] || '';
+  };
+
+  const isoToDisplay = (iso: string) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    let hours = d.getHours();
+    const mins = String(d.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    return `${dd}/${mm}/${yyyy} ${hours}:${mins} ${ampm}`;
+  };
+
+  const issuedIsoToDateOnly = (iso: string) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const timestampToIso = (ts: any) => {
+    if (!ts) return '';
+    try {
+      if (typeof ts.toDate === 'function') return ts.toDate().toISOString();
+    } catch { /* no-op */ }
+    return '';
+  };
+
+  const historyKey = (r: { payTo?: string; chequeNo?: string; date?: string; amount?: string; issuedAt?: string }) =>
+    `${normalizePayee(r.payTo || '')}|${(r.chequeNo || '').trim()}|${(r.date || '').trim()}|${(r.amount || '').trim()}|${(r.issuedAt || '').trim()}`;
+
+  const mergeHistory = (current: Array<{ key: string }>, incoming: Array<{ key: string }>) => {
+    const seen = new Set(current.map(r => r.key));
+    const out = [...current];
+    for (const item of incoming) {
+      if (seen.has(item.key)) continue;
+      seen.add(item.key);
+      out.push(item);
+    }
+    return out;
+  };
+
+  const mapRecentCheques = (docs: any[]) =>
+    docs.map(d => ({
+      chequeNo: d.data().chequeNo as string,
+      amount: d.data().amountInNumbers as string,
+      date: d.data().date as string,
+      payTo: d.data().payTo as string,
+      issuedDay: (d.data().issuedDay as string) || storedDateToDay(d.data().date as string),
+    }));
+
+  const mapHistoryDocs = (docs: any[]) =>
+    docs.map(d => {
+      const data = d.data() || {};
+      const createdIso = timestampToIso(data.createdAt);
+      const issuedAt = (data.issuedAt as string) || createdIso || storedDateToISOWithTime(data.date as string);
+      const rec = {
+        payTo: data.payTo as string,
+        chequeNo: data.chequeNo as string,
+        amount: data.amountInNumbers as string,
+        date: data.date as string,
+        issuedAt,
+        issuedDay: (data.issuedDay as string) || isoToDay(issuedAt) || storedDateToDay(data.date as string),
+      };
+      return { key: historyKey(rec), ...rec };
+    });
+
+  const loadRecentForPayee = async (payee: string) => {
+    const p = (payee || '').trim();
+    if (!p) { setRecentCheques([]); return; }
+    const norm = normalizePayee(p);
+    const runQuery = async (field: 'payToLower' | 'payTo', value: string) => {
+      const snap = await withIndexedDbRetry(async () => {
+        const q = query(
+          collection(db, 'cheques'),
+          where(field, '==', value),
+          orderBy('createdAt', 'desc'),
+          limit(3)
+        );
+        return await getDocs(q);
+      });
+      return snap;
+    };
+
+    let snap: any = null;
+    try {
+      if (norm) snap = await runQuery('payToLower', norm);
+    } catch (e) {
+      console.warn('payToLower recent lookup failed, falling back', e);
+    }
+
+    try {
+      if (!snap || snap.empty) snap = await runQuery('payTo', p);
+      setRecentCheques(mapRecentCheques(snap.docs));
+    } catch (e) {
+      console.error('Failed to load recent cheques', e);
+      setRecentCheques([]);
+    }
+  };
+
+  const migratePayeesNameLower = async (docs: any[]) => {
+    try {
+      const done = localStorage.getItem(PAYEES_MIGRATION_KEY);
+      if (done === '1') return;
+    } catch { /* no-op */ }
+    const updates: Array<{ ref: any; nameLower: string }> = [];
+    for (const d of docs) {
+      const data = d.data?.() || {};
+      const name = (data.name as string || '').trim();
+      const desired = normalizePayee(name);
+      if (!desired) continue;
+      const existing = (data.nameLower as string || '').trim();
+      if (existing !== desired) updates.push({ ref: d.ref, nameLower: desired });
+    }
+    if (!updates.length) {
+      try { localStorage.setItem(PAYEES_MIGRATION_KEY, '1'); } catch { /* no-op */ }
+      return;
+    }
+    const BATCH_LIMIT = 400;
+    for (let i = 0; i < updates.length; i += BATCH_LIMIT) {
+      const batch = writeBatch(db);
+      for (const u of updates.slice(i, i + BATCH_LIMIT)) {
+        batch.update(u.ref, { nameLower: u.nameLower });
+      }
+      await batch.commit();
+    }
+    try { localStorage.setItem(PAYEES_MIGRATION_KEY, '1'); } catch { /* no-op */ }
+  };
+
+  const migrateChequesPayToLower = async () => {
+    try {
+      const done = localStorage.getItem(CHEQUES_MIGRATION_KEY);
+      if (done === '1') return;
+    } catch { /* no-op */ }
+    try {
+      let last: any = null;
+      while (true) {
+        const snap = await withIndexedDbRetry(async () => {
+          const q = last
+            ? query(collection(db, 'cheques'), orderBy('payTo', 'asc'), startAfter(last), limit(CHEQUES_PAGE_SIZE))
+            : query(collection(db, 'cheques'), orderBy('payTo', 'asc'), limit(CHEQUES_PAGE_SIZE));
+          return await getDocs(q);
+        });
+        if (snap.empty) break;
+        const updates: Array<{ ref: any; data: any }> = [];
+        for (const d of snap.docs) {
+          const data = d.data() || {};
+          const name = (data.payTo as string || '').trim();
+          const desired = normalizePayee(name);
+          if (!desired) continue;
+          const existing = (data.payToLower as string || '').trim();
+          const patch: any = {};
+          if (existing !== desired) patch.payToLower = desired;
+          const createdIso = timestampToIso(data.createdAt);
+          const issuedAt = (data.issuedAt as string) || createdIso || storedDateToISOWithTime(data.date as string);
+          if (!data.issuedAt && issuedAt) patch.issuedAt = issuedAt;
+          const issuedDay = (data.issuedDay as string) || isoToDay(issuedAt) || storedDateToDay(data.date as string);
+          if (!data.issuedDay && issuedDay) patch.issuedDay = issuedDay;
+          if (Object.keys(patch).length) updates.push({ ref: d.ref, data: patch });
+        }
+        if (updates.length) {
+          const BATCH_LIMIT = 400;
+          for (let i = 0; i < updates.length; i += BATCH_LIMIT) {
+            const batch = writeBatch(db);
+            for (const u of updates.slice(i, i + BATCH_LIMIT)) {
+              batch.update(u.ref, u.data);
+            }
+            await batch.commit();
+          }
+        }
+        last = snap.docs[snap.docs.length - 1];
+        if (snap.size < CHEQUES_PAGE_SIZE) break;
+      }
+      try { localStorage.setItem(CHEQUES_MIGRATION_KEY, '1'); } catch { /* no-op */ }
+    } catch (e) {
+      console.warn('Cheque migration failed', e);
+    }
+  };
+
+  const loadHistoryPage = async (opts?: { reset?: boolean }) => {
+    if (historyLoading) return;
+    if (opts?.reset) {
+      setHistoryLastDoc(null);
+      setHistoryLoadedAll(false);
+    }
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const last = opts?.reset ? null : historyLastDoc;
+      const snap = await withIndexedDbRetry(async () => {
+        const q = last
+          ? query(collection(db, 'cheques'), orderBy('createdAt', 'desc'), startAfter(last), limit(HISTORY_PAGE_SIZE))
+          : query(collection(db, 'cheques'), orderBy('createdAt', 'desc'), limit(HISTORY_PAGE_SIZE));
+        return await getDocs(q);
+      });
+      const items = mapHistoryDocs(snap.docs);
+      if (opts?.reset) {
+        setHistoryRecords(items);
+      } else {
+        setHistoryRecords(prev => mergeHistory(prev, items));
+      }
+      const nextLast = snap.docs.length ? snap.docs[snap.docs.length - 1] : last;
+      setHistoryLastDoc(nextLast);
+      const reachedEnd = snap.size < HISTORY_PAGE_SIZE;
+      setHistoryLoadedAll(reachedEnd);
+    } catch (e: any) {
+      console.warn('History load failed', e);
+      setHistoryError(e?.message || 'Failed to load history.');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   const isIndexedDbError = (e: any) => {
     const msg = (e?.message || '').toString();
@@ -66,20 +364,81 @@ export default function App() {
   useEffect(() => {
     const load = async () => {
       try {
-        const snap = await withIndexedDbRetry(async () => {
-          const q = query(collection(db, 'payees'), orderBy('name', 'asc'), limit(500));
-          return await getDocs(q);
-        });
-        const names = snap.docs.map(d => (d.data().name as string || '').trim()).filter(Boolean);
-        setPayees(names);
-        setPayeesLoaded(true);
+        const allDocs: any[] = [];
+        let last: any = null;
+        let firstBatch = true;
+        while (true) {
+          const snap = await withIndexedDbRetry(async () => {
+            const q = last
+              ? query(collection(db, 'payees'), orderBy('name', 'asc'), startAfter(last), limit(PAYEES_PAGE_SIZE))
+              : query(collection(db, 'payees'), orderBy('name', 'asc'), limit(PAYEES_PAGE_SIZE));
+            return await getDocs(q);
+          });
+          if (snap.empty) break;
+          allDocs.push(...snap.docs);
+          last = snap.docs[snap.docs.length - 1];
+          const names = allDocs.map(d => (d.data().name as string || '').trim()).filter(Boolean);
+          const merged = mergePayees(names);
+          setPayees(merged);
+          setPayeesLoaded(true);
+          setPayeesError(null);
+          try { localStorage.setItem(PAYEES_CACHE_KEY, JSON.stringify(merged)); } catch { /* no-op */ }
+          if (firstBatch) firstBatch = false;
+          if (snap.size < PAYEES_PAGE_SIZE) break;
+        }
+        setTimeout(() => { migratePayeesNameLower(allDocs).catch(e => console.warn('payee migration failed', e)); }, 600);
       } catch (e) {
         console.error('Failed to load payees', e);
+        setPayeesError((e as any)?.message || 'Failed to load payees.');
         setPayeesLoaded(true);
       }
     };
+    try {
+      const cached = localStorage.getItem(PAYEES_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length) {
+          setPayees(parsed);
+          setPayeesLoaded(true);
+        }
+      }
+    } catch { /* no-op */ }
     load();
+  }, [payeesReloadKey]);
+
+  useEffect(() => {
+    let unsub: (() => void) | null = null;
+    try {
+      const q = query(collection(db, 'payees'), orderBy('name', 'asc'));
+      unsub = onSnapshot(q, snap => {
+        const names = snap.docs.map(d => (d.data().name as string || '').trim()).filter(Boolean);
+        const merged = mergePayees(names);
+        setPayees(merged);
+        setPayeesLoaded(true);
+        setPayeesError(null);
+        try { localStorage.setItem(PAYEES_CACHE_KEY, JSON.stringify(merged)); } catch { /* no-op */ }
+      }, err => {
+        console.warn('Live payee listener failed', err);
+        setPayeesError(err?.message || 'Live payee sync failed.');
+      });
+    } catch (e) {
+      console.warn('Failed to start live payee listener', e);
+      setPayeesError((e as any)?.message || 'Live payee sync failed.');
+    }
+    return () => { if (unsub) unsub(); };
   }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => { migrateChequesPayToLower(); }, 1200);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!historyOpen) return;
+    if (!historyRecords.length || historyError) {
+      loadHistoryPage({ reset: true });
+    }
+  }, [historyOpen, historyRecords.length, historyError]);
 
   useEffect(() => {
     const onRepaired = () => {
@@ -121,7 +480,8 @@ export default function App() {
   };
   const addPending = (rec: any) => {
     const id = `p_${Date.now()}_${Math.floor(Math.random()*10000)}`;
-    const item = { id, ...rec };
+    const issuedAt = rec?.issuedAt || new Date().toISOString();
+    const item = { id, ...rec, payToLower: normalizePayee(rec?.payTo || ''), issuedAt, issuedDay: rec?.issuedDay || isoToDay(issuedAt) };
     const next = [item, ...loadPendingFromStorage()];
     savePendingToStorage(next);
     setPendingQueue(next.slice(0,50));
@@ -134,7 +494,8 @@ export default function App() {
     const remaining: any[] = [];
     for (const p of pending) {
       try {
-        await addDoc(collection(db, 'cheques'), { payTo: p.payTo, date: p.date, amountInNumbers: p.amountInNumbers, amountInWords: p.amountInWords, chequeNo: p.chequeNo, createdAt: serverTimestamp() });
+        const issuedAt = p.issuedAt || new Date().toISOString();
+        await addDoc(collection(db, 'cheques'), { payTo: p.payTo, payToLower: normalizePayee(p.payTo || ''), date: p.date, amountInNumbers: p.amountInNumbers, amountInWords: p.amountInWords, chequeNo: p.chequeNo, issuedAt, issuedDay: p.issuedDay || isoToDay(issuedAt), createdAt: serverTimestamp() });
       } catch (e) {
         console.warn('flushPending item failed', e, p);
         remaining.push(p);
@@ -145,12 +506,7 @@ export default function App() {
     // refresh recentCheques if current payee affected
     if (data.payTo) {
       try {
-        const snap = await withIndexedDbRetry(async () => {
-          const q = query(collection(db, 'cheques'), where('payTo', '==', data.payTo), orderBy('createdAt', 'desc'), limit(5));
-          return await getDocs(q);
-        });
-        const items = snap.docs.map(d => ({ chequeNo: d.data().chequeNo as string, amount: d.data().amountInNumbers as string, date: d.data().date as string, payTo: d.data().payTo as string }));
-        setRecentCheques(items);
+        await loadRecentForPayee(data.payTo);
       } catch (e) { console.warn('refresh after flush failed', e); }
     }
   };
@@ -167,43 +523,89 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const v = (data.payTo || '').trim();
+    const raw = data.payTo || '';
+    const v = normalizePayee(raw);
     if (!v) { setFilteredPayees([]); setShowSuggestions(false); return; }
-    const low = v.toLowerCase();
-    const matches = payees.filter(p => (p || '').toLowerCase().includes(low));
-    setFilteredPayees(matches.slice(0, 10));
+    const localMatches = payees.filter(p => normalizePayee(p).includes(v));
+    const liveMatches = livePayeeMatches.filter(p => normalizePayee(p).includes(v));
+    const merged = mergePayees(localMatches, liveMatches);
+    setFilteredPayees(merged.slice(0, 10));
     setShowSuggestions(true);
-  }, [payees, data.payTo]);
+  }, [payees, livePayeeMatches, data.payTo]);
+
+  useEffect(() => {
+    const term = normalizePayee(data.payTo || '');
+    if (!term) { setLivePayeeMatches([]); setLivePayeesLoading(false); return; }
+    let cancelled = false;
+    setLivePayeesLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const snap = await withIndexedDbRetry(async () => {
+          const q = query(
+            collection(db, 'payees'),
+            orderBy('nameLower'),
+            startAt(term),
+            endAt(term + '\uf8ff'),
+            limit(20)
+          );
+          return await getDocs(q);
+        });
+        const names = snap.docs.map(d => (d.data().name as string || '').trim()).filter(Boolean);
+        if (!cancelled) {
+          setLivePayeeMatches(names);
+          if (names.length) {
+            setPayees(prev => {
+              const next = mergePayees(names, prev);
+              try { localStorage.setItem(PAYEES_CACHE_KEY, JSON.stringify(next)); } catch { /* no-op */ }
+              return next;
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Live payee search failed', e);
+        if (!cancelled) setLivePayeeMatches([]);
+      } finally {
+        if (!cancelled) setLivePayeesLoading(false);
+      }
+    }, 150);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [data.payTo]);
 
   useEffect(() => {
     const loadRecent = async () => {
-      const p = data.payTo?.trim();
-      if (!p) { setRecentCheques([]); return; }
-      try {
-        const snap = await withIndexedDbRetry(async () => {
-          const q = query(collection(db, 'cheques'), where('payTo', '==', p), orderBy('createdAt', 'desc'), limit(3));
-          return await getDocs(q);
-        });
-        const items = snap.docs.map(d => ({
-          chequeNo: d.data().chequeNo as string,
-          amount: d.data().amountInNumbers as string,
-          date: d.data().date as string,
-          payTo: d.data().payTo as string,
-        }));
-        setRecentCheques(items);
-      } catch (e) { console.error('Failed to load recent cheques', e); }
+      await loadRecentForPayee(data.payTo || '');
     };
     loadRecent();
   }, [data.payTo]);
 
   const addPayee = async (name?: string) => {
     const v = (name || data.payTo || '').trim();
+    const existing = findExistingPayee(v);
+    if (existing) { setData(d => ({ ...d, payTo: existing })); return; }
     if (!v) return;
     try {
-      if (!payees.includes(v)) {
-        await addDoc(collection(db, 'payees'), { name: v, createdAt: serverTimestamp() });
-        setPayees(p => [v, ...p]);
+      const norm = normalizePayee(v);
+      if (norm) {
+        try {
+          const snap = await withIndexedDbRetry(async () => {
+            const q = query(collection(db, 'payees'), where('nameLower', '==', norm), limit(1));
+            return await getDocs(q);
+          });
+          if (!snap.empty) {
+            const existingName = (snap.docs[0].data().name as string || '').trim();
+            setData(d => ({ ...d, payTo: existingName || v }));
+            return;
+          }
+        } catch (e) {
+          console.warn('Payee lookup failed', e);
+        }
       }
+      await addDoc(collection(db, 'payees'), { name: v, nameLower: normalizePayee(v), createdAt: serverTimestamp() });
+      setPayees(p => {
+        const next = [v, ...p];
+        try { localStorage.setItem(PAYEES_CACHE_KEY, JSON.stringify(next)); } catch { /* no-op */ }
+        return next;
+      });
       setData(d => ({ ...d, payTo: v }));
     } catch (e) { console.error('Failed to add payee', e); }
   };
@@ -269,7 +671,7 @@ export default function App() {
     }
     // If payee is new, fire-and-forget add (do NOT await) so the print dialog is triggered by the user gesture
     try {
-      if (!payees.includes((data.payTo || '').trim())) {
+      if (!findExistingPayee((data.payTo || '').trim())) {
         addPayee((data.payTo || '').trim()).catch(e => console.warn('addPayee failed (background)', e));
       }
     } catch (e) {
@@ -278,6 +680,7 @@ export default function App() {
 
     // Save snapshot synchronously and call window.print() immediately so browser recognizes it as a user action
     setLastPrinted({ ...data });
+    setLastPrintedAt(new Date().toISOString());
     try {
       setPrintingToast('Preparing print...');
       window.print();
@@ -289,6 +692,57 @@ export default function App() {
     }
   };
 
+  const persistChequeRecord = async (
+    record: {
+      payTo: string;
+      payToLower?: string;
+      date: string;
+      amountInNumbers: string;
+      amountInWords: string;
+      chequeNo: string;
+      issuedDay?: string;
+      issuedAt?: string;
+    },
+    opts?: { openHistory?: boolean }
+  ) => {
+    const issuedAt = record.issuedAt || new Date().toISOString();
+    const normalizedRecord = {
+      ...record,
+      payToLower: record.payToLower || normalizePayee(record.payTo || ''),
+      issuedAt,
+      issuedDay: record.issuedDay || isoToDay(issuedAt),
+    };
+    let savedRemotely = false;
+    try {
+      await addDoc(collection(db, 'cheques'), { ...normalizedRecord, createdAt: serverTimestamp() });
+      savedRemotely = true;
+    } catch (e) {
+      console.warn('Remote save failed, queuing locally', e);
+      addPending(normalizedRecord);
+    }
+    const newItem = { chequeNo: normalizedRecord.chequeNo, amount: normalizedRecord.amountInNumbers, date: normalizedRecord.date, payTo: normalizedRecord.payTo, issuedDay: normalizedRecord.issuedDay, issuedAt: normalizedRecord.issuedAt };
+    setLastSavedRecord({
+      payTo: normalizedRecord.payTo || '',
+      amountInNumbers: normalizedRecord.amountInNumbers || '',
+      date: normalizedRecord.date || '',
+      chequeNo: normalizedRecord.chequeNo || '',
+    });
+    setRecentCheques(prev => [newItem, ...prev].slice(0, 5));
+    setHistoryRecords(prev => mergeHistory(prev, [{ key: historyKey(newItem), ...newItem }]));
+    try {
+      if (normalizedRecord.payTo) {
+        await loadRecentForPayee(normalizedRecord.payTo);
+      }
+    } catch (e) {
+      console.error('Failed to refresh recent cheques', e);
+    }
+    setSaveError(null);
+    setSaveSuccess(savedRemotely ? 'Cheque saved' : 'Saved locally (will sync when online)');
+    if (opts?.openHistory) setHistoryOpen(true);
+    setTimeout(() => setSaveSuccess(null), 2500);
+    return savedRemotely;
+  };
+
   const savePrintedCheque = async () => {
     if (!lastPrinted) { alert('No printed cheque to save. Please print first.'); return; }
     const chequeNo = window.prompt('Enter printed Cheque Number (required to save):');
@@ -296,42 +750,14 @@ export default function App() {
     try {
       const record = {
         payTo: lastPrinted.payTo || '',
+        payToLower: normalizePayee(lastPrinted.payTo || ''),
         date: lastPrinted.date || '',
         amountInNumbers: lastPrinted.amountInNumbers || '',
         amountInWords: lastPrinted.amountInWords || '',
         chequeNo,
+        issuedAt: lastPrintedAt || new Date().toISOString(),
       };
-      // attempt to save to Firestore; if it fails, queue locally
-      let savedRemotely = false;
-      try {
-        const docRef = await addDoc(collection(db, 'cheques'), { ...record, createdAt: serverTimestamp() });
-        savedRemotely = true;
-      } catch (e) {
-        console.warn('Remote save failed, queuing locally', e);
-        addPending(record);
-      }
-      // optimistically update recentCheques immediately so user sees the saved item
-      const newItem = { chequeNo: record.chequeNo, amount: record.amountInNumbers, date: record.date, payTo: record.payTo };
-      setRecentCheques(prev => [newItem, ...prev].slice(0, 5));
-      // reload recent cheques for the payee that was printed (use lastPrinted.payTo) to keep server state in sync
-      try {
-        const payee = (lastPrinted.payTo || '').trim();
-        if (payee) {
-          const snap = await withIndexedDbRetry(async () => {
-            const q = query(collection(db, 'cheques'), where('payTo', '==', payee), orderBy('createdAt', 'desc'), limit(5));
-            return await getDocs(q);
-          });
-          const items = snap.docs.map(d => ({
-            chequeNo: d.data().chequeNo as string,
-            amount: d.data().amountInNumbers as string,
-            date: d.data().date as string,
-            payTo: d.data().payTo as string,
-          }));
-          setRecentCheques(items);
-        }
-      } catch (e) {
-        console.error('Failed to refresh recent cheques', e);
-      }
+      await persistChequeRecord(record, { openHistory: true });
       // ensure the cheque number is reflected in the app state so other UI (and WA button) shows it
       setData(d => ({ ...d, chequeNo }));
       // open whatsapp with cheque number included (use the saved record values)
@@ -343,13 +769,25 @@ export default function App() {
       console.log('Opening WhatsApp with message:', message, { record, chequeNo, dataChecqueNo: data.chequeNo });
       window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
       // indicate success and clear lastPrinted
-      setSaveError(null);
-      setSaveSuccess(savedRemotely ? 'Cheque saved' : 'Saved locally (will sync when online)');
-      setHistoryOpen(true);
-      setTimeout(() => setSaveSuccess(null), 2500);
       setLastPrinted(null);
     } catch (e: any) { console.error('Save failed', e); setSaveError('Save failed: ' + (e?.message || e)); }
   };
+
+    const historySearchTerm = (historySearch || '').toLowerCase().trim();
+    const filteredHistory = historyRecords.filter(r => {
+      if (historySearchTerm) {
+        const hay = `${r.payTo || ''} ${r.chequeNo || ''}`.toLowerCase();
+        if (!hay.includes(historySearchTerm)) return false;
+      }
+      const iso = issuedIsoToDateOnly(r.issuedAt || '') || storedDateToISO(r.date || '');
+      if (historyFrom) {
+        if (!iso || iso < historyFrom) return false;
+      }
+    if (historyTo) {
+      if (!iso || iso > historyTo) return false;
+    }
+    return true;
+  });
 
   return (
     <div>
@@ -416,8 +854,15 @@ export default function App() {
 
             {showSuggestions && (
               <div className={`custom-dropdown ${filteredPayees.length > 0 ? 'active' : 'active'}`}>
-                { !payeesLoaded ? (
+                { payeesError ? (
+                  <div className="dropdown-item" style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                    <div style={{color:'#b91c1c'}}>Unable to load payees</div>
+                    <button onMouseDown={() => setPayeesReloadKey(k => k + 1)}>Retry</button>
+                  </div>
+                ) : !payeesLoaded ? (
                   <div className="dropdown-item loading">Loading payees…</div>
+                ) : livePayeesLoading && filteredPayees.length === 0 ? (
+                  <div className="dropdown-item loading">Searching payees…</div>
                 ) : filteredPayees.length > 0 ? (
                   filteredPayees.map(s => (
                     <div key={s} onMouseDown={() => { setData(d => ({ ...d, payTo: s })); setShowSuggestions(false); }} className="dropdown-item">{s}</div>
@@ -434,20 +879,21 @@ export default function App() {
               </div>
             )}
 
-            {/* Show last 3 cheques for this payee */}
-            {recentCheques.length > 0 && (
-              <div style={{marginTop:8, background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:6, padding:8}}>
-                <div style={{fontSize:'0.95em', color:'#64748b', marginBottom:4}}>Last 3 cheques for this payee:</div>
-                {recentCheques.map((c, i) => (
-                  <div key={i} style={{display:'flex', justifyContent:'space-between', fontSize:'0.97em', marginBottom:2}}>
-                    <span>Date: {c.date ? `${c.date.slice(0,2)}/${c.date.slice(2,4)}/${c.date.slice(4)}` : '--/--/----'}</span>
-                    <span>₹{c.amount}</span>
-                    <span>Chq: {c.chequeNo}</span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
+
+          {/* Show last 3 cheques for this payee (between payee and amount) */}
+          {recentCheques.length > 0 && (
+            <div style={{marginTop:8, marginBottom:8, background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:6, padding:8}}>
+              <div style={{fontSize:'0.95em', color:'#64748b', marginBottom:4}}>Last 3 cheques for this payee:</div>
+              {recentCheques.map((c, i) => (
+                <div key={i} style={{display:'flex', justifyContent:'space-between', fontSize:'0.97em', marginBottom:2}}>
+                  <span>Date: {c.date ? `${c.date.slice(0,2)}/${c.date.slice(2,4)}/${c.date.slice(4)}` : '--/--/----'}</span>
+                  <span>₹{c.amount}</span>
+                  <span>Chq: {c.chequeNo}</span>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="input-wrapper">
             <label className="input-label">Amount (₹)</label>
@@ -553,17 +999,46 @@ export default function App() {
         </button>
 
         <button className="dock-btn btn-wa" onClick={() => {
-          const day = (data.date || '').slice(0,2); const month = (data.date || '').slice(2,4); const year = (data.date || '').slice(4);
-          const amt = data.amountInNumbers ? `${data.amountInNumbers}/-` : '';
-          const chq = data.chequeNo || '';
-          const message = `${data.payTo || ''} ${amt} on ${day}/${month}/${year} : ${chq}`.trim();
-          console.log('WA button message:', message, { data });
+          const fallbackPayTo = lastSavedRecord?.payTo || '';
+          const fallbackAmount = lastSavedRecord?.amountInNumbers || '';
+          const fallbackDate = lastSavedRecord?.date || '';
+          let chq = data.chequeNo || '';
+          const wasMissing = !chq;
           if (!chq) {
-            // warn user that cheque number isn't set yet
-            setSaveError('No cheque number set — save first to include cheque number in WhatsApp.');
+            const entered = window.prompt('Enter cheque number to include in WhatsApp:');
+            if (!entered || !entered.trim()) return;
+            chq = entered.trim();
+            setData(d => ({ ...d, chequeNo: chq }));
+          }
+          if (wasMissing) {
+            if (!data.payTo || !data.amountInNumbers || !data.date) {
+              setSaveError('Unable to auto-save. Please fill Payee, Amount, and Date first.');
+              setTimeout(() => setSaveError(null), 3000);
+            } else {
+              const record = {
+                payTo: data.payTo || '',
+                payToLower: normalizePayee(data.payTo || ''),
+                date: data.date || '',
+                amountInNumbers: data.amountInNumbers || '',
+                amountInWords: data.amountInWords || '',
+                chequeNo: chq,
+                issuedAt: new Date().toISOString(),
+              };
+              persistChequeRecord(record).catch(e => console.warn('auto-save from WhatsApp failed', e));
+            }
+          }
+          const payTo = (data.payTo || fallbackPayTo || '').trim();
+          const amountNum = (data.amountInNumbers || fallbackAmount || '').trim();
+          const dateStored = (data.date || fallbackDate || '').trim();
+          const dateText = dateStored ? formatPreviewDate(dateStored) : '';
+          if (!payTo || !amountNum || !dateText) {
+            setSaveError('Missing Payee/Amount/Date for WhatsApp message.');
             setTimeout(() => setSaveError(null), 3000);
             return;
           }
+          const amt = `${amountNum}/-`;
+          const message = `${payTo} ${amt} on ${dateText} : ${chq}`.trim();
+          console.log('WA button message:', message, { data, payTo, amountNum, dateText });
           window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
         }} aria-label="WhatsApp">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -578,21 +1053,100 @@ export default function App() {
           <span className="drawer-title">Print History</span>
           <button onClick={() => setHistoryOpen(false)} style={{background:'none', border:'none', fontSize:'1.5rem', cursor:'pointer'}}>&times;</button>
         </div>
+        <div className="history-filters">
+          <input
+            className="history-input"
+            type="text"
+            placeholder="Search by name or cheque number"
+            value={historySearchInput}
+            onChange={e => setHistorySearchInput(e.target.value)}
+          />
+          <div className="history-filter-row">
+            <input
+              className="history-input"
+              type="date"
+              value={historyFromInput}
+              onChange={e => setHistoryFromInput(e.target.value)}
+            />
+            <input
+              className="history-input"
+              type="date"
+              value={historyToInput}
+              onChange={e => setHistoryToInput(e.target.value)}
+            />
+          </div>
+          <div className="history-actions">
+            <button
+              className="history-btn primary"
+              onClick={() => {
+                setHistorySearch(historySearchInput.trim());
+                setHistoryFrom(historyFromInput);
+                setHistoryTo(historyToInput);
+              }}
+            >
+              Search
+            </button>
+            <button
+              className="history-btn ghost"
+              onClick={() => {
+                setHistorySearchInput('');
+                setHistoryFromInput('');
+                setHistoryToInput('');
+                setHistorySearch('');
+                setHistoryFrom('');
+                setHistoryTo('');
+              }}
+            >
+              Reset
+            </button>
+            <button className="history-btn ghost" onClick={() => loadHistoryPage({ reset: true })}>
+              Refresh
+            </button>
+          </div>
+        </div>
+        <div className="history-meta">
+          Showing {filteredHistory.length} of {historyRecords.length} loaded
+        </div>
         <div className="history-list">
-          {recentCheques.length === 0 ? (
-            <div style={{textAlign:'center', padding:20, color:'#aaa'}}>No history yet</div>
-          ) : recentCheques.map((r, i) => (
-            <div key={i} className="history-item">
-              <div>
-                <div className="h-name">{r.payTo || data.payTo}</div>
-                <div className="h-date">{r.date ? `${r.date.slice(0,2)}/${r.date.slice(2,4)}/${r.date.slice(4)}` : ''}</div>
-              </div>
-              <div style={{textAlign:'right'}}>
-                <div className="h-price">₹{r.amount}</div>
-                {r.chequeNo && <div style={{fontSize:'0.85rem', color: 'var(--text-muted)'}}>Chq: {r.chequeNo}</div>}
-              </div>
+          {historyError ? (
+            <div style={{textAlign:'center', padding:20, color:'#b91c1c'}}>{historyError}</div>
+          ) : historyLoading && historyRecords.length === 0 ? (
+            <div style={{textAlign:'center', padding:20, color:'#aaa'}}>Loading history…</div>
+          ) : filteredHistory.length === 0 ? (
+            <div style={{textAlign:'center', padding:20, color:'#aaa'}}>No records found</div>
+          ) : (
+            filteredHistory.map(r => {
+              const issued = r.issuedDay || storedDateToDay(r.date || '');
+              const dateText = r.date ? formatPreviewDate(r.date) : '--/--/----';
+              return (
+                <div key={r.key} className="history-item">
+                  <div>
+                    <div className="h-name">{r.payTo || '—'}</div>
+                    <div className="h-date">
+                      Cheque: {dateText}{issued ? ` • ${issued}` : ''}
+                    </div>
+                    {r.issuedAt && (
+                      <div className="h-date">Issued: {isoToDisplay(r.issuedAt)}</div>
+                    )}
+                  </div>
+                  <div style={{textAlign:'right'}}>
+                    <div className="h-price">₹{r.amount || ''}</div>
+                    <div style={{fontSize:'0.85rem', color: 'var(--text-muted)'}}>Chq: {r.chequeNo || '--'}</div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+          {!historyLoadedAll && !historyLoading && (
+            <div style={{textAlign:'center', padding:16}}>
+              <button className="history-btn ghost" onClick={() => loadHistoryPage()}>
+                Load more
+              </button>
             </div>
-          ))}
+          )}
+          {historyLoading && historyRecords.length > 0 && (
+            <div style={{textAlign:'center', padding:12, color:'#94a3b8'}}>Loading more…</div>
+          )}
         </div>
       </div>
 

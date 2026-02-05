@@ -1,6 +1,15 @@
-# Red Lantern Cheque
+# Red Lantern Cheque Printer
 
-A Vite + React + TypeScript app for creating and storing cheques using Firebase Firestore.
+A Vite + React + TypeScript app for creating, printing, and storing cheques using Firebase Firestore.
+
+## Key Features
+
+- Payee autocomplete with fast local cache + live Firestore search.
+- Inline “Last cheques for this payee” preview under the Payee field.
+- One‑tap Print + Save workflow.
+- WhatsApp share that auto‑saves a cheque when it prompts for cheque number.
+- Full Print History with search (name/cheque no) and date range filters.
+- Offline queue (stores pending items locally and syncs when online).
 
 ## Prerequisites
 
@@ -51,6 +60,42 @@ cp .env.example .env
 
 2. In the Firebase Console, create a Web App (if you do not already have one) and copy the config values into `.env`.
 
+Note: `.env` contains secrets. Make sure it is not committed to version control.
+
+## Firestore Indexes (Required)
+
+The history and “recent cheques” queries require composite indexes. Create both:
+
+1. `cheques` collection:
+   - `payTo` (Ascending)
+   - `createdAt` (Descending)
+2. `cheques` collection:
+   - `payToLower` (Ascending)
+   - `createdAt` (Descending)
+
+Firestore will show a console link to create each index the first time the query runs.
+
+## Data Model
+
+Collections used:
+
+- `payees`
+  - `name` (string)
+  - `nameLower` (string, normalized)
+  - `createdAt` (timestamp)
+- `cheques`
+  - `payTo` (string)
+  - `payToLower` (string, normalized)
+  - `date` (string, DDMMYYYY)
+  - `amountInNumbers` (string)
+  - `amountInWords` (string)
+  - `chequeNo` (string)
+  - `issuedAt` (ISO string, when saved/printed)
+  - `issuedDay` (string, Mon/Tue/etc.)
+  - `createdAt` (timestamp)
+
+The app backfills missing `nameLower`, `payToLower`, `issuedAt`, and `issuedDay` on startup.
+
 ## Deployment
 
 This app is a standard Vite build.
@@ -72,13 +117,13 @@ Make sure your host is configured with the same `.env` values used locally.
 
 ## Architecture Overview
 
-- `src/App.tsx` is the main screen container and renders the app layout.
-- `src/components/ChequeForm.tsx` handles form entry, validation, and Firestore writes.
+- `src/App.tsx` renders the UI and manages Firestore reads/writes.
 - `src/firebase.ts` initializes Firebase and exports a Firestore instance.
 
 Data flow:
-- Form input goes through `ChequeForm` and writes to Firestore.
-- The main app queries Firestore for recent cheques and renders the list.
+- Form input updates local state.
+- Payees and cheques are synced from Firestore (with local cache and offline queue).
+- History and recent cheques are read from Firestore and rendered in the UI.
 
 ## Project Scripts
 
