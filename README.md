@@ -7,6 +7,7 @@ A Vite + React + TypeScript app for creating, printing, and storing cheques usin
 - Payee autocomplete with fast local cache + live Firestore search.
 - Inline “Last cheques for this payee” preview under the Payee field.
 - One‑tap Print + Save workflow.
+- Mobile‑safe printing (auto‑fallback to PDF on mobile devices).
 - WhatsApp share that auto‑saves a cheque when it prompts for cheque number.
 - Full Print History with search (name/cheque no) and date range filters.
 - Offline queue (stores pending items locally and syncs when online).
@@ -114,6 +115,13 @@ Common options:
 - Firebase Hosting: run `firebase init hosting`, set the public directory to `dist`, and deploy with `firebase deploy`.
 
 Make sure your host is configured with the same `.env` values used locally.
+
+## Recent Changes
+
+- Mobile print detection: `PRINT` auto‑generates a PDF on mobile where `window.print()` is unreliable.
+- PDF fallback opens in the same tab if pop‑ups are blocked.
+- App/PWA icons updated to use `public/app-192.png` and `public/app-512.png`.
+- Mobile‑specific print setup guidance shown in the setup card.
 
 ## Architecture Overview
 

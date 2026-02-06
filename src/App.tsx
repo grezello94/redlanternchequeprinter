@@ -665,6 +665,21 @@ export default function App() {
     return parts.join('.') + '/-';
   };
 
+  const isMobileDevice = () => {
+    if (typeof navigator === 'undefined') return false;
+    const navAny = navigator as any;
+    if (typeof navAny.userAgentData?.mobile === 'boolean') return navAny.userAgentData.mobile;
+    const ua = navigator.userAgent || '';
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(ua);
+  };
+
+  const canDirectPrint = () => {
+    if (typeof window === 'undefined') return false;
+    return typeof window.print === 'function' && !isMobileDevice();
+  };
+
+  const isMobile = isMobileDevice();
+
   const handlePrint = () => {
     console.log('handlePrint invoked', { payTo: data.payTo, amount: data.amountInNumbers });
     if (!data.payTo || !data.amountInNumbers) {
@@ -684,6 +699,12 @@ export default function App() {
     // Save snapshot synchronously and call window.print() immediately so browser recognizes it as a user action
     setLastPrinted({ ...data });
     setLastPrintedAt(new Date().toISOString());
+    if (!canDirectPrint()) {
+      setPrintingToast('Mobile detected. Generating PDF for printing...');
+      setTimeout(() => setPrintingToast(null), 2200);
+      void exportPdfAndShare();
+      return;
+    }
     try {
       setPrintingToast('Preparing print...');
       window.print();
@@ -722,7 +743,10 @@ export default function App() {
         await navigator.share({ files: [file], title: 'Cheque', text: 'Cheque PDF' });
       } else {
         const url = URL.createObjectURL(blob);
-        window.open(url, '_blank');
+        const win = window.open(url, '_blank');
+        if (!win) {
+          window.location.href = url;
+        }
         setTimeout(() => URL.revokeObjectURL(url), 30000);
       }
 
@@ -845,12 +869,22 @@ export default function App() {
 
       {showPrintSetup && (
         <div className="setup-card">
-          <div className="setup-title">One-time Print Setup (PWA)</div>
+          <div className="setup-title">{isMobile ? 'Mobile Print Setup' : 'One-time Print Setup (PWA)'}</div>
           <div className="setup-list">
-            <div>1. Install the app (Add to Home Screen / Install App).</div>
-            <div>2. Set Epson L3250 as default printer (Windows).</div>
-            <div>3. Set custom paper size to 204mm x 95mm once in printer settings.</div>
-            <div>4. Use the PRINT button for one-tap printing (system dialog will still appear).</div>
+            {isMobile ? (
+              <>
+                <div>1. Use the PDF button to generate the cheque.</div>
+                <div>2. From the PDF viewer/share sheet, choose Print.</div>
+                <div>3. Ensure paper size is 204mm x 95mm in the printer settings.</div>
+              </>
+            ) : (
+              <>
+                <div>1. Install the app (Add to Home Screen / Install App).</div>
+                <div>2. Set Epson L3250 as default printer (Windows).</div>
+                <div>3. Set custom paper size to 204mm x 95mm once in printer settings.</div>
+                <div>4. Use the PRINT button for one-tap printing (system dialog will still appear).</div>
+              </>
+            )}
           </div>
           <div className="setup-actions">
             <button
