@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import { db, repairIndexedDbPersistence } from './firebase';
 import { collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs, where, startAt, endAt, startAfter, writeBatch, onSnapshot } from 'firebase/firestore';
 import type { ChequeData } from './types';
@@ -50,6 +52,7 @@ export default function App() {
   const [dbStatus, setDbStatus] = useState<{ ok: boolean; msg?: string } | null>(null);
   const [showPrintSetup, setShowPrintSetup] = useState(false);
   const [systemToast, setSystemToast] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const PAYEES_CACHE_KEY = 'rl_payees_cache_v1';
   const PAYEES_MIGRATION_KEY = 'rl_payees_migrated_nameLower_v1';
   const PAYEES_PAGE_SIZE = 500;
@@ -692,6 +695,48 @@ export default function App() {
     }
   };
 
+  const exportPdfAndShare = async () => {
+    if (!data.payTo || !data.amountInNumbers) {
+      setPrintingToast('Please fill Payee and Amount before exporting.');
+      setTimeout(() => setPrintingToast(null), 2500);
+      return;
+    }
+    try {
+      setSystemToast('Preparing PDF...');
+      setExporting(true);
+      await new Promise(requestAnimationFrame);
+      await new Promise(r => setTimeout(r, 80));
+
+      const el = document.querySelector('.cheque-print-container') as HTMLElement | null;
+      if (!el) throw new Error('Print container not found');
+
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: null });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [204, 95] });
+      pdf.addImage(imgData, 'PNG', 0, 0, 204, 95);
+
+      const blob = pdf.output('blob');
+      const file = new File([blob], `cheque-${Date.now()}.pdf`, { type: 'application/pdf' });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Cheque', text: 'Cheque PDF' });
+      } else {
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+      }
+
+      setSystemToast('PDF ready');
+      setTimeout(() => setSystemToast(null), 2000);
+    } catch (e) {
+      console.error('PDF export failed', e);
+      setSystemToast('Unable to export PDF');
+      setTimeout(() => setSystemToast(null), 2500);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const persistChequeRecord = async (
     record: {
       payTo: string;
@@ -998,6 +1043,10 @@ export default function App() {
           PRINT
         </button>
 
+        <button className="dock-btn btn-pdf" onClick={exportPdfAndShare} aria-label="Share PDF" title="Share PDF">
+          PDF
+        </button>
+
         <button className="dock-btn btn-wa" onClick={() => {
           const fallbackPayTo = lastSavedRecord?.payTo || '';
           const fallbackAmount = lastSavedRecord?.amountInNumbers || '';
@@ -1204,7 +1253,7 @@ export default function App() {
         </div>
       </div>
 
-      <div className="cheque-print-container">
+      <div className={`cheque-print-container ${exporting ? 'export' : ''}`}>
         <div className="print-date-field">{data.date}</div>
         <div className="print-pay-field">{!data.hidePayee ? data.payTo : ''}</div>
         <div className="print-amount-words">{data.amountInWords}</div>

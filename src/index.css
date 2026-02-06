@@ -330,6 +330,8 @@ header {
 
 .btn-print { flex: 1; background: var(--primary); color: white; font-weight: 600; font-size: 1rem; gap: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3); }
 
+.btn-pdf { width: 52px; background: #E0F2FE; color: #0369A1; font-weight: 700; }
+
 .btn-wa { width: 52px; background: #DCFCE7; color: var(--success); }
 
 /* --- HISTORY DRAWER --- */
@@ -397,6 +399,15 @@ header {
 
 /* --- EXACT PRINT CSS --- */
 .cheque-print-container { display: none; }
+.cheque-print-container.export {
+    display: block;
+    position: fixed;
+    left: -10000px;
+    top: 0;
+    width: 20.4cm;
+    height: 9.5cm;
+    background: transparent;
+}
 @media print {
     .container, header, .bottom-dock, .history-drawer, .history-overlay { display: none !important; }
     body { background: none; } body * { visibility: hidden; }
