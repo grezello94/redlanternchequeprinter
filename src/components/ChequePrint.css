@@ -30,7 +30,7 @@
   /* Date Field - Exact measurements: 1cm from top, 15.7cm from left */
   .print-date-field {
     position: absolute;
-    top: 1cm;
+    top: 1.2cm; /* actual was set to 1cm */
     left: 15.9cm;
     font-size: 0.50cm;
     font-weight: bold;
