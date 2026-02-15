@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { db, repairIndexedDbPersistence } from './firebase';
@@ -53,6 +53,25 @@ export default function App() {
   const [showPrintSetup, setShowPrintSetup] = useState(false);
   const [systemToast, setSystemToast] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [bifurcateEnabled, setBifurcateEnabled] = useState(false);
+  const [bifurcateCount, setBifurcateCount] = useState(2);
+  const [bifurcateTotal, setBifurcateTotal] = useState('');
+  const [bifurcateSession, setBifurcateSession] = useState<{
+    amounts: string[];
+    chequeNos: string[];
+    currentIndex: number;
+    printedCount: number;
+    printedRecords: Array<{
+      payTo: string;
+      date: string;
+      amountInNumbers: string;
+      amountInWords: string;
+      issuedAt: string;
+    }>;
+    payTo: string;
+    date: string;
+  } | null>(null);
+  const WA_TARGET_KEY = 'rl_whatsapp_target_v1';
   const PAYEES_CACHE_KEY = 'rl_payees_cache_v1';
   const PAYEES_MIGRATION_KEY = 'rl_payees_migrated_nameLower_v1';
   const PAYEES_PAGE_SIZE = 500;
@@ -61,6 +80,7 @@ export default function App() {
   const HISTORY_PAGE_SIZE = 200;
   const [livePayeeMatches, setLivePayeeMatches] = useState<string[]>([]);
   const [livePayeesLoading, setLivePayeesLoading] = useState(false);
+  const pendingAutoDatePayeeRef = useRef<string | null>(null);
 
   const normalizePayee = (value: string) =>
     (value || '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -152,8 +172,11 @@ export default function App() {
     return '';
   };
 
-  const historyKey = (r: { payTo?: string; chequeNo?: string; date?: string; amount?: string; issuedAt?: string }) =>
-    `${normalizePayee(r.payTo || '')}|${(r.chequeNo || '').trim()}|${(r.date || '').trim()}|${(r.amount || '').trim()}|${(r.issuedAt || '').trim()}`;
+  const normalizeAmountKey = (v: string) => (v || '').toString().replace(/[^\d.]/g, '').trim();
+  const chequeIdentityKey = (r: { payTo?: string; chequeNo?: string; date?: string; amount?: string; amountInNumbers?: string }) =>
+    `${normalizePayee(r.payTo || '')}|${(r.chequeNo || '').trim()}|${(r.date || '').trim()}|${normalizeAmountKey((r.amountInNumbers || r.amount || '').toString())}`;
+  const historyKey = (r: { payTo?: string; chequeNo?: string; date?: string; amount?: string; amountInNumbers?: string }) =>
+    chequeIdentityKey(r);
 
   const mergeHistory = (current: Array<{ key: string }>, incoming: Array<{ key: string }>) => {
     const seen = new Set(current.map(r => r.key));
@@ -321,7 +344,7 @@ export default function App() {
       });
       const items = mapHistoryDocs(snap.docs);
       if (opts?.reset) {
-        setHistoryRecords(items);
+        setHistoryRecords(mergeHistory([], items));
       } else {
         setHistoryRecords(prev => mergeHistory(prev, items));
       }
@@ -498,6 +521,14 @@ export default function App() {
     for (const p of pending) {
       try {
         const issuedAt = p.issuedAt || new Date().toISOString();
+        const duplicate = await isDuplicateChequeRecord({
+          payTo: p.payTo || '',
+          payToLower: normalizePayee(p.payTo || ''),
+          date: p.date || '',
+          amountInNumbers: p.amountInNumbers || '',
+          chequeNo: p.chequeNo || '',
+        });
+        if (duplicate) continue;
         await addDoc(collection(db, 'cheques'), { payTo: p.payTo, payToLower: normalizePayee(p.payTo || ''), date: p.date, amountInNumbers: p.amountInNumbers, amountInWords: p.amountInWords, chequeNo: p.chequeNo, issuedAt, issuedDay: p.issuedDay || isoToDay(issuedAt), createdAt: serverTimestamp() });
       } catch (e) {
         console.warn('flushPending item failed', e, p);
@@ -580,6 +611,35 @@ export default function App() {
     };
     loadRecent();
   }, [data.payTo]);
+
+  useEffect(() => {
+    if (!bifurcateEnabled) return;
+    if (!bifurcateTotal) {
+      setBifurcateTotal((data.amountInNumbers || '').replace(/\D/g, ''));
+    }
+  }, [bifurcateEnabled, bifurcateTotal, data.amountInNumbers]);
+
+  // When payee changes, auto-apply latest cheque date for that payee once
+  // after recent cheques are loaded.
+  useEffect(() => {
+    const key = normalizePayee(data.payTo || '');
+    pendingAutoDatePayeeRef.current = key || null;
+  }, [data.payTo]);
+
+  useEffect(() => {
+    const pendingKey = pendingAutoDatePayeeRef.current;
+    if (!pendingKey || !recentCheques.length) return;
+    const latest = recentCheques[0];
+    const latestPayeeKey = normalizePayee(latest?.payTo || '');
+    if (latestPayeeKey !== pendingKey) return;
+    const latestDate = (latest?.date || '').trim();
+    if (!latestDate || latestDate.length !== 8) {
+      pendingAutoDatePayeeRef.current = null;
+      return;
+    }
+    setData(d => (d.date === latestDate ? d : { ...d, date: latestDate }));
+    pendingAutoDatePayeeRef.current = null;
+  }, [recentCheques]);
 
   const addPayee = async (name?: string) => {
     const v = (name || data.payTo || '').trim();
@@ -665,6 +725,147 @@ export default function App() {
     return parts.join('.') + '/-';
   };
 
+  const buildBifurcationAmounts = (total: string, count: number) => {
+    const n = parseInt((total || '').replace(/\D/g, ''), 10);
+    if (!n || n <= 0 || !count || count < 2) return null;
+    const each = Math.floor(n / count);
+    if (each <= 0) return null;
+    return Array.from({ length: count }, () => String(each));
+  };
+
+  const buildBifurcationMessage = (
+    payTo: string,
+    records: Array<{ date?: string; amountInNumbers?: string }>,
+    chequeNos: string[]
+  ) => {
+    const lines = records.map((rec, idx) => {
+      const amount = (rec?.amountInNumbers || '').trim();
+      const dateText = rec?.date ? formatPreviewDate(rec.date) : '--/--/----';
+      return `${idx + 1}) ${amount}/- on ${dateText} : ${chequeNos[idx] || ''}`.trim();
+    });
+    return [`${payTo}`, ...lines].join('\n');
+  };
+
+  const getWhatsAppTarget = (): 'web' | 'app' | null => {
+    try {
+      const saved = localStorage.getItem(WA_TARGET_KEY);
+      if (saved === 'web' || saved === 'app') return saved;
+    } catch { /* no-op */ }
+    return null;
+  };
+
+  const setWhatsAppTarget = (target: 'web' | 'app') => {
+    try { localStorage.setItem(WA_TARGET_KEY, target); } catch { /* no-op */ }
+  };
+
+  const getWhatsAppUrl = (message: string) => {
+    let target = getWhatsAppTarget();
+    if (!target) {
+      target = isMobileDevice() ? 'app' : 'web';
+      setWhatsAppTarget(target);
+    }
+    const encoded = encodeURIComponent(message);
+    return target === 'web'
+      ? `https://web.whatsapp.com/send?text=${encoded}`
+      : `https://api.whatsapp.com/send?text=${encoded}`;
+  };
+
+  const openWhatsApp = (message: string, preopened?: Window | null) => {
+    const url = getWhatsAppUrl(message);
+    if (preopened && !preopened.closed) {
+      try {
+        preopened.location.href = url;
+        preopened.focus();
+        return;
+      } catch { /* no-op */ }
+    }
+    const opened = window.open(url, '_blank');
+    if (!opened) {
+      // Last fallback so WhatsApp still opens even if popup is blocked.
+      window.location.href = url;
+    }
+  };
+
+  const escapeHtml = (value: string) =>
+    (value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+  const printViaPopup = (snapshot: ChequeData) => {
+    if (typeof window === 'undefined') return false;
+    const popup = window.open('', '_blank', 'popup=yes,width=1000,height=650');
+    if (!popup) return false;
+
+    const date = escapeHtml(snapshot.date || '');
+    const payTo = escapeHtml(snapshot.hidePayee ? '' : (snapshot.payTo || ''));
+    const amountWords = escapeHtml(snapshot.amountInWords || '');
+    const amountNum = escapeHtml(formatAmountForPrint(snapshot.amountInNumbers || ''));
+
+    popup.document.open();
+    popup.document.write(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cheque Print</title>
+    <style>
+      @page { size: 20.4cm 9.5cm; margin: 0; }
+      html, body { margin: 0; padding: 0; width: 20.4cm; height: 9.5cm; overflow: hidden; background: transparent; }
+      .cheque-print-container { position: relative; width: 20.4cm; height: 9.5cm; background: transparent; }
+      .print-date-field {
+        position: absolute; top: 1cm; left: 15.9cm; width: 4.4cm;
+        font-size: 0.50cm; font-weight: bold; font-family: 'Courier New', monospace;
+        color: #000; letter-spacing: 0.18cm; text-align: left; line-height: 1;
+      }
+      .print-pay-field {
+        position: absolute; top: 2.2cm; left: 3.2cm; width: 13cm;
+        font-size: 0.38cm; font-weight: 600; font-family: 'Times New Roman', serif;
+        color: #000; line-height: 1.1; text-transform: uppercase;
+      }
+      .print-amount-words {
+        position: absolute; top: 3.0cm; left: 3.8cm; max-width: 16cm;
+        font-size: 0.38cm; font-weight: 600; font-family: 'Times New Roman', serif;
+        color: #000; line-height: 1.3; text-transform: uppercase;
+        white-space: normal; word-wrap: break-word; overflow-wrap: break-word;
+      }
+      .print-amount-numbers {
+        position: absolute; top: 3.7cm; left: 16cm; width: 3.8cm;
+        font-size: 0.59cm; font-weight: bold; font-family: 'Courier New', monospace;
+        color: #000; text-align: left; line-height: 1.1;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="cheque-print-container">
+      <div class="print-date-field">${date}</div>
+      <div class="print-pay-field">${payTo}</div>
+      <div class="print-amount-words">${amountWords}</div>
+      <div class="print-amount-numbers">${amountNum}</div>
+    </div>
+  </body>
+</html>`);
+    popup.document.close();
+
+    const runPrint = () => {
+      popup.focus();
+      setTimeout(() => {
+        try { popup.print(); } catch { /* no-op */ }
+      }, 60);
+    };
+    if (popup.document.readyState === 'complete') runPrint();
+    else popup.onload = runPrint;
+
+    popup.onafterprint = () => {
+      setTimeout(() => {
+        try { popup.close(); } catch { /* no-op */ }
+      }, 120);
+    };
+    return true;
+  };
+
   const isMobileDevice = () => {
     if (typeof navigator === 'undefined') return false;
     const navAny = navigator as any;
@@ -696,8 +897,10 @@ export default function App() {
       console.warn('background addPayee invocation failed', e);
     }
 
-    // Save snapshot synchronously and call window.print() immediately so browser recognizes it as a user action
-    setLastPrinted({ ...data });
+    // Save snapshot synchronously so save/WhatsApp use exact printed values.
+    // Start a fresh print session; cheque number must be entered per print.
+    const printSnapshot = { ...data, chequeNo: '' };
+    setLastPrinted(printSnapshot);
     setLastPrintedAt(new Date().toISOString());
     if (!canDirectPrint()) {
       setPrintingToast('Mobile detected. Generating PDF for printing...');
@@ -707,12 +910,49 @@ export default function App() {
     }
     try {
       setPrintingToast('Preparing print...');
-      window.print();
+      const popupPrinted = printViaPopup(printSnapshot);
+      if (!popupPrinted) window.print();
       setTimeout(() => setPrintingToast(null), 2000);
     } catch (e) {
       console.error('window.print failed', e);
       setPrintingToast('Unable to open print dialog.');
       setTimeout(() => setPrintingToast(null), 3000);
+    }
+
+    if (bifurcateSession) {
+      const total = bifurcateSession.amounts.length;
+      const printedCount = Math.min(bifurcateSession.printedCount + 1, total);
+      const nextRecords = [
+        ...bifurcateSession.printedRecords,
+        {
+          payTo: bifurcateSession.payTo || printSnapshot.payTo || '',
+          date: printSnapshot.date || bifurcateSession.date || '',
+          amountInNumbers: printSnapshot.amountInNumbers || '',
+          amountInWords: printSnapshot.amountInWords || '',
+          issuedAt: new Date().toISOString(),
+        },
+      ];
+      if (printedCount < total) {
+        const nextAmount = bifurcateSession.amounts[printedCount] || '';
+        setBifurcateSession({
+          ...bifurcateSession,
+          printedCount,
+          printedRecords: nextRecords,
+          currentIndex: printedCount,
+        });
+        setData(d => ({ ...d, amountInNumbers: nextAmount, amountInWords: numberToWords(nextAmount), chequeNo: '' }));
+        setSystemToast(`Printed ${printedCount}/${total}. Next split loaded.`);
+        setTimeout(() => setSystemToast(null), 2200);
+      } else {
+        setBifurcateSession({
+          ...bifurcateSession,
+          printedCount,
+          printedRecords: nextRecords,
+          currentIndex: total - 1,
+        });
+        setSystemToast('All splits printed. Click Save to enter cheque numbers and save all.');
+        setTimeout(() => setSystemToast(null), 2600);
+      }
     }
   };
 
@@ -761,6 +1001,63 @@ export default function App() {
     }
   };
 
+  const isDuplicateChequeRecord = async (
+    record: {
+      payTo: string;
+      payToLower?: string;
+      date: string;
+      amountInNumbers: string;
+      chequeNo: string;
+    }
+  ) => {
+    const key = chequeIdentityKey(record);
+    if (!key) return false;
+
+    if (historyRecords.some(r => historyKey(r) === key)) return true;
+
+    try {
+      const pending = loadPendingFromStorage();
+      if (pending.some((p: any) => chequeIdentityKey(p) === key)) return true;
+    } catch { /* no-op */ }
+
+    const payToLower = record.payToLower || normalizePayee(record.payTo || '');
+    try {
+      const snap = await withIndexedDbRetry(async () => {
+        const q = query(
+          collection(db, 'cheques'),
+          where('payToLower', '==', payToLower),
+          where('chequeNo', '==', (record.chequeNo || '').trim()),
+          where('date', '==', (record.date || '').trim()),
+          where('amountInNumbers', '==', (record.amountInNumbers || '').trim()),
+          limit(1)
+        );
+        return await getDocs(q);
+      });
+      if (!snap.empty) return true;
+    } catch (e) {
+      console.warn('Duplicate check via payToLower failed', e);
+    }
+
+    try {
+      const snapLegacy = await withIndexedDbRetry(async () => {
+        const q = query(
+          collection(db, 'cheques'),
+          where('payTo', '==', (record.payTo || '').trim()),
+          where('chequeNo', '==', (record.chequeNo || '').trim()),
+          where('date', '==', (record.date || '').trim()),
+          where('amountInNumbers', '==', (record.amountInNumbers || '').trim()),
+          limit(1)
+        );
+        return await getDocs(q);
+      });
+      if (!snapLegacy.empty) return true;
+    } catch (e) {
+      console.warn('Duplicate check via payTo failed', e);
+    }
+
+    return false;
+  };
+
   const persistChequeRecord = async (
     record: {
       payTo: string;
@@ -773,14 +1070,27 @@ export default function App() {
       issuedAt?: string;
     },
     opts?: { openHistory?: boolean }
-  ) => {
+  ) : Promise<{ savedRemotely: boolean; duplicate: boolean }> => {
     const issuedAt = record.issuedAt || new Date().toISOString();
     const normalizedRecord = {
       ...record,
+      payTo: (record.payTo || '').trim(),
+      chequeNo: (record.chequeNo || '').trim(),
+      date: (record.date || '').trim(),
+      amountInNumbers: (record.amountInNumbers || '').trim(),
+      amountInWords: (record.amountInWords || '').trim(),
       payToLower: record.payToLower || normalizePayee(record.payTo || ''),
       issuedAt,
       issuedDay: record.issuedDay || isoToDay(issuedAt),
     };
+    const duplicate = await isDuplicateChequeRecord(normalizedRecord);
+    if (duplicate) {
+      window.confirm('Duplicate cheque found (same Name + Cheque No + Amount + Date).\nThis record will NOT be saved.');
+      setSaveError('Duplicate cheque detected. Save blocked.');
+      setTimeout(() => setSaveError(null), 3500);
+      return { savedRemotely: false, duplicate: true };
+    }
+
     let savedRemotely = false;
     try {
       await addDoc(collection(db, 'cheques'), { ...normalizedRecord, createdAt: serverTimestamp() });
@@ -809,14 +1119,74 @@ export default function App() {
     setSaveSuccess(savedRemotely ? 'Cheque saved' : 'Saved locally (will sync when online)');
     if (opts?.openHistory) setHistoryOpen(true);
     setTimeout(() => setSaveSuccess(null), 2500);
-    return savedRemotely;
+    return { savedRemotely, duplicate: false };
+  };
+
+  const finalizeBifurcationSaveAndSend = async () => {
+    if (!bifurcateSession) return false;
+    if (bifurcateSession.printedCount < bifurcateSession.amounts.length) {
+      setSaveError(`Please print all ${bifurcateSession.amounts.length} split cheques before saving.`);
+      setTimeout(() => setSaveError(null), 3200);
+      return true;
+    }
+
+    const dateText = formatPreviewDate(bifurcateSession.date || '');
+    const enteredNos: string[] = [];
+    for (let i = 0; i < bifurcateSession.amounts.length; i++) {
+      const entered = window.prompt(
+        `Enter cheque number for split ${i + 1}/${bifurcateSession.amounts.length} on ${dateText} (₹${bifurcateSession.amounts[i]}/-):`
+      );
+      if (!entered || !entered.trim()) {
+        alert('Save cancelled. All cheque numbers are required.');
+        return true;
+      }
+      enteredNos.push(entered.trim());
+    }
+
+    // Reserve a window during the user gesture so browsers don't block WA after async saves.
+    const waWindow = window.open('about:blank', '_blank');
+
+    const records = bifurcateSession.printedRecords.slice(0, bifurcateSession.amounts.length);
+    if (!records.length) {
+      setSaveError('No printed split records found. Please print again.');
+      setTimeout(() => setSaveError(null), 3200);
+      return true;
+    }
+
+    for (let i = 0; i < records.length; i++) {
+      const rec = records[i];
+      await persistChequeRecord({
+        payTo: rec.payTo || bifurcateSession.payTo || '',
+        payToLower: normalizePayee(rec.payTo || bifurcateSession.payTo || ''),
+        date: rec.date || bifurcateSession.date || '',
+        amountInNumbers: rec.amountInNumbers || bifurcateSession.amounts[i] || '',
+        amountInWords: rec.amountInWords || numberToWords(rec.amountInNumbers || bifurcateSession.amounts[i] || ''),
+        chequeNo: enteredNos[i] || '',
+        issuedAt: rec.issuedAt || new Date().toISOString(),
+      }, { openHistory: i === records.length - 1 });
+    }
+
+    const message = buildBifurcationMessage(
+      bifurcateSession.payTo || '',
+      records.map(r => ({ date: r.date || bifurcateSession.date || '', amountInNumbers: r.amountInNumbers || '' })),
+      enteredNos
+    );
+    openWhatsApp(message, waWindow);
+    setBifurcateSession(null);
+    setBifurcateEnabled(false);
+    setBifurcateTotal('');
+    setData(d => ({ ...d, chequeNo: '' }));
+    setLastPrinted(null);
+    return true;
   };
 
   const savePrintedCheque = async () => {
-    if (!lastPrinted) { alert('No printed cheque to save. Please print first.'); return; }
-    const chequeNo = window.prompt('Enter printed Cheque Number (required to save):');
-    if (!chequeNo) { alert('Cheque not saved.'); return; }
     try {
+      if (await finalizeBifurcationSaveAndSend()) return;
+
+      if (!lastPrinted) { alert('No printed cheque to save. Please print first.'); return; }
+      const chequeNo = window.prompt('Enter printed Cheque Number (required to save):');
+      if (!chequeNo) { alert('Cheque not saved.'); return; }
       const record = {
         payTo: lastPrinted.payTo || '',
         payToLower: normalizePayee(lastPrinted.payTo || ''),
@@ -826,18 +1196,19 @@ export default function App() {
         chequeNo,
         issuedAt: lastPrintedAt || new Date().toISOString(),
       };
-      await persistChequeRecord(record, { openHistory: true });
-      // ensure the cheque number is reflected in the app state so other UI (and WA button) shows it
-      setData(d => ({ ...d, chequeNo }));
-      // open whatsapp with cheque number included (use the saved record values)
       const day = record.date?.slice(0,2) || '';
       const month = record.date?.slice(2,4) || '';
       const year = record.date?.slice(4) || '';
       const amt = record.amountInNumbers ? `${record.amountInNumbers}/-` : '';
       const message = `${record.payTo || ''} ${amt} on ${day}/${month}/${year} : ${record.chequeNo || chequeNo}`.trim();
-      console.log('Opening WhatsApp with message:', message, { record, chequeNo, dataChecqueNo: data.chequeNo });
-      window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
-      // indicate success and clear lastPrinted
+      const waWindow = window.open('about:blank', '_blank');
+      const saveResult = await persistChequeRecord(record, { openHistory: true });
+      if (saveResult.duplicate) {
+        try { waWindow?.close(); } catch { /* no-op */ }
+        return;
+      }
+      openWhatsApp(message, waWindow);
+      setData(d => ({ ...d, chequeNo: '' }));
       setLastPrinted(null);
     } catch (e: any) { console.error('Save failed', e); setSaveError('Save failed: ' + (e?.message || e)); }
   };
@@ -974,6 +1345,93 @@ export default function App() {
             </div>
           )}
 
+          <div style={{marginTop:8, marginBottom:8, background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:6, padding:10}}>
+            <label style={{display:'flex', alignItems:'center', gap:8, fontWeight:600}}>
+              <input
+                type="checkbox"
+                checked={bifurcateEnabled}
+                onChange={e => {
+                  const checked = e.target.checked;
+                  setBifurcateEnabled(checked);
+                  if (!checked) {
+                    setBifurcateSession(null);
+                    setBifurcateTotal('');
+                  }
+                }}
+              />
+              Amount Bifurcation
+            </label>
+            {bifurcateEnabled && (
+              <div style={{marginTop:8}}>
+                <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+                  <input
+                    className="input-box"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="\d*"
+                    placeholder="Total amount"
+                    value={bifurcateTotal}
+                    onChange={e => setBifurcateTotal((e.target.value || '').replace(/\D/g, ''))}
+                    style={{maxWidth:180}}
+                  />
+                  <select
+                    className="input-box"
+                    value={String(bifurcateCount)}
+                    onChange={e => setBifurcateCount(parseInt(e.target.value, 10) || 2)}
+                    style={{maxWidth:120}}
+                  >
+                    <option value="2">2 parts</option>
+                    <option value="3">3 parts</option>
+                    <option value="4">4 parts</option>
+                    <option value="5">5 parts</option>
+                    <option value="6">6 parts</option>
+                    <option value="7">7 parts</option>
+                    <option value="8">8 parts</option>
+                    <option value="9">9 parts</option>
+                    <option value="10">10 parts</option>
+                  </select>
+                  <button
+                    className="history-btn primary"
+                    type="button"
+                    onClick={() => {
+                      if (!data.payTo) {
+                        setSaveError('Please fill Payee before starting bifurcation.');
+                        setTimeout(() => setSaveError(null), 3000);
+                        return;
+                      }
+                      const amounts = buildBifurcationAmounts(bifurcateTotal || data.amountInNumbers, bifurcateCount);
+                      if (!amounts) {
+                        setSaveError('Invalid total/count for bifurcation.');
+                        setTimeout(() => setSaveError(null), 3000);
+                        return;
+                      }
+                      const sessionDate = data.date || new Date().toLocaleDateString('en-GB').replace(/\//g, '');
+                      setBifurcateSession({
+                        amounts,
+                        chequeNos: Array.from({ length: amounts.length }, () => ''),
+                        currentIndex: 0,
+                        printedCount: 0,
+                        printedRecords: [],
+                        payTo: data.payTo || '',
+                        date: sessionDate,
+                      });
+                      const firstAmount = amounts[0] || '';
+                      setData(d => ({ ...d, date: sessionDate, amountInNumbers: firstAmount, amountInWords: numberToWords(firstAmount), chequeNo: '' }));
+                    }}
+                  >
+                    Start
+                  </button>
+                </div>
+                {bifurcateSession && (
+                  <div style={{marginTop:8, fontSize:'0.9em', color:'#334155'}}>
+                    Printed {bifurcateSession.printedCount} of {bifurcateSession.amounts.length}.
+                    {' '}Current split amount: ₹{bifurcateSession.amounts[bifurcateSession.currentIndex] || '0'} /-
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="input-wrapper">
             <label className="input-label">Amount (₹)</label>
             <input
@@ -1081,48 +1539,61 @@ export default function App() {
           PDF
         </button>
 
-        <button className="dock-btn btn-wa" onClick={() => {
+        <button className="dock-btn btn-wa" onClick={async () => {
+          if (bifurcateSession) {
+            await finalizeBifurcationSaveAndSend();
+            return;
+          }
           const fallbackPayTo = lastSavedRecord?.payTo || '';
           const fallbackAmount = lastSavedRecord?.amountInNumbers || '';
           const fallbackDate = lastSavedRecord?.date || '';
-          let chq = data.chequeNo || '';
-          const wasMissing = !chq;
+          const source = lastPrinted || data;
+
+          // If there is a freshly printed cheque pending save, always ask a fresh cheque number.
+          let chq = (lastPrinted ? '' : (data.chequeNo || '')).trim();
           if (!chq) {
             const entered = window.prompt('Enter cheque number to include in WhatsApp:');
             if (!entered || !entered.trim()) return;
             chq = entered.trim();
-            setData(d => ({ ...d, chequeNo: chq }));
           }
-          if (wasMissing) {
-            if (!data.payTo || !data.amountInNumbers || !data.date) {
-              setSaveError('Unable to auto-save. Please fill Payee, Amount, and Date first.');
-              setTimeout(() => setSaveError(null), 3000);
-            } else {
-              const record = {
-                payTo: data.payTo || '',
-                payToLower: normalizePayee(data.payTo || ''),
-                date: data.date || '',
-                amountInNumbers: data.amountInNumbers || '',
-                amountInWords: data.amountInWords || '',
-                chequeNo: chq,
-                issuedAt: new Date().toISOString(),
-              };
-              persistChequeRecord(record).catch(e => console.warn('auto-save from WhatsApp failed', e));
-            }
-          }
-          const payTo = (data.payTo || fallbackPayTo || '').trim();
-          const amountNum = (data.amountInNumbers || fallbackAmount || '').trim();
-          const dateStored = (data.date || fallbackDate || '').trim();
+
+          const payTo = (source.payTo || fallbackPayTo || '').trim();
+          const amountNum = (source.amountInNumbers || fallbackAmount || '').trim();
+          const dateStored = (source.date || fallbackDate || '').trim();
           const dateText = dateStored ? formatPreviewDate(dateStored) : '';
           if (!payTo || !amountNum || !dateText) {
             setSaveError('Missing Payee/Amount/Date for WhatsApp message.');
             setTimeout(() => setSaveError(null), 3000);
             return;
           }
-          const amt = `${amountNum}/-`;
-          const message = `${payTo} ${amt} on ${dateText} : ${chq}`.trim();
-          console.log('WA button message:', message, { data, payTo, amountNum, dateText });
-          window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
+
+          const message = `${payTo} ${amountNum}/- on ${dateText} : ${chq}`.trim();
+          console.log('WA button message:', message, { source, payTo, amountNum, dateText, chq });
+          openWhatsApp(message);
+
+          // Save automatically for this WhatsApp action so history always gets the entered cheque number.
+          const record = {
+            payTo,
+            payToLower: normalizePayee(payTo),
+            date: dateStored,
+            amountInNumbers: amountNum,
+            amountInWords: source.amountInWords || '',
+            chequeNo: chq,
+            issuedAt: (lastPrinted && lastPrintedAt) ? lastPrintedAt : new Date().toISOString(),
+          };
+          try {
+            await persistChequeRecord(record);
+          } catch (e) {
+            console.warn('auto-save from WhatsApp failed', e);
+          }
+
+          if (lastPrinted) {
+            setLastPrinted(null);
+            setData(d => ({ ...d, chequeNo: '' }));
+          } else {
+            setData(d => ({ ...d, chequeNo: chq }));
+          }
+
         }} aria-label="WhatsApp">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
             <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.008-.57-.008-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
