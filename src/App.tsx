@@ -1,10 +1,42 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { db, repairIndexedDbPersistence } from './firebase';
 import { collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs, where, startAt, endAt, startAfter, writeBatch, onSnapshot } from 'firebase/firestore';
 import type { ChequeData } from './types';
 // print components are not directly imported here; we use print container markup
+
+const FONT_OPTIONS = {
+  times: {
+    label: 'Times New Roman',
+    cssFamily: `'Times New Roman', Times, serif`,
+  },
+  handwriting: {
+    label: 'Running Handwriting',
+    cssFamily: `'Segoe Script', 'Lucida Handwriting', 'Brush Script MT', cursive`,
+  },
+  edwardian: {
+    label: 'Edwardian Script',
+    cssFamily: `'Edwardian Script ITC', 'Edwardian Script', 'Lucida Handwriting', cursive`,
+  },
+  kunstler: {
+    label: 'Kunstler Script',
+    cssFamily: `'Kunstler Script', 'Lucida Handwriting', 'Brush Script MT', cursive`,
+  },
+  courier: {
+    label: 'Courier New',
+    cssFamily: `'Courier New', Courier, monospace`,
+  },
+} as const;
+
+const INK_COLOR_OPTIONS = {
+  blue: { label: 'Blue', hex: '#1d4ed8' },
+  darkBlue: { label: 'Dark Blue', hex: '#1e3a8a' },
+  lightBlue: { label: 'Light Blue', hex: '#60a5fa' },
+} as const;
+
+type PrintFontKey = keyof typeof FONT_OPTIONS;
+type InkColorKey = keyof typeof INK_COLOR_OPTIONS;
 
 export default function App() {
   const [data, setData] = useState<ChequeData>({
@@ -17,7 +49,9 @@ export default function App() {
     ifscCode: 'BARBOCOLVAX',
     payeeName: 'FOR RED LANTERN RESTAURANT',
     chequeNo: '',
-    hidePayee: false
+    hidePayee: false,
+    printFont: 'times',
+    inkColor: 'blue',
   });
 
   const [payees, setPayees] = useState<string[]>([]);
@@ -725,6 +759,19 @@ export default function App() {
     return parts.join('.') + '/-';
   };
 
+  const selectedPrintFont = (data.printFont || 'times') as PrintFontKey;
+  const selectedInkColor = (data.inkColor || 'blue') as InkColorKey;
+  const printFontFamily = FONT_OPTIONS[selectedPrintFont]?.cssFamily || FONT_OPTIONS.times.cssFamily;
+  const printInkColor = INK_COLOR_OPTIONS[selectedInkColor]?.hex || INK_COLOR_OPTIONS.blue.hex;
+  const printStyleVars = {
+    '--print-font-family': printFontFamily,
+    '--print-ink-color': printInkColor,
+  } as CSSProperties;
+  const livePreviewTextStyle: CSSProperties = {
+    fontFamily: printFontFamily,
+    color: printInkColor,
+  };
+
   const buildBifurcationAmounts = (total: string, count: number) => {
     const n = parseInt((total || '').replace(/\D/g, ''), 10);
     if (!n || n <= 0 || !count || count < 2) return null;
@@ -803,6 +850,10 @@ export default function App() {
     const payTo = escapeHtml(snapshot.hidePayee ? '' : (snapshot.payTo || ''));
     const amountWords = escapeHtml(snapshot.amountInWords || '');
     const amountNum = escapeHtml(formatAmountForPrint(snapshot.amountInNumbers || ''));
+    const snapshotFont = (snapshot.printFont || 'times') as PrintFontKey;
+    const snapshotInk = (snapshot.inkColor || 'blue') as InkColorKey;
+    const popupFontFamily = FONT_OPTIONS[snapshotFont]?.cssFamily || FONT_OPTIONS.times.cssFamily;
+    const popupInkColor = INK_COLOR_OPTIONS[snapshotInk]?.hex || INK_COLOR_OPTIONS.blue.hex;
 
     popup.document.open();
     popup.document.write(`<!doctype html>
@@ -817,24 +868,24 @@ export default function App() {
       .cheque-print-container { position: relative; width: 20.4cm; height: 9.5cm; background: transparent; }
       .print-date-field {
         position: absolute; top: 1cm; left: 15.9cm; width: 4.4cm;
-        font-size: 0.50cm; font-weight: bold; font-family: 'Courier New', monospace;
-        color: #000; letter-spacing: 0.18cm; text-align: left; line-height: 1;
+        font-size: 0.50cm; font-weight: bold; font-family: ${popupFontFamily};
+        color: ${popupInkColor}; letter-spacing: 0.18cm; text-align: left; line-height: 1;
       }
       .print-pay-field {
         position: absolute; top: 2.2cm; left: 3.2cm; width: 13cm;
-        font-size: 0.38cm; font-weight: 600; font-family: 'Times New Roman', serif;
-        color: #000; line-height: 1.1; text-transform: uppercase;
+        font-size: 0.38cm; font-weight: 600; font-family: ${popupFontFamily};
+        color: ${popupInkColor}; line-height: 1.1; text-transform: uppercase;
       }
       .print-amount-words {
         position: absolute; top: 3.0cm; left: 3.8cm; max-width: 16cm;
-        font-size: 0.38cm; font-weight: 600; font-family: 'Times New Roman', serif;
-        color: #000; line-height: 1.3; text-transform: uppercase;
+        font-size: 0.38cm; font-weight: 600; font-family: ${popupFontFamily};
+        color: ${popupInkColor}; line-height: 1.3; text-transform: uppercase;
         white-space: normal; word-wrap: break-word; overflow-wrap: break-word;
       }
       .print-amount-numbers {
         position: absolute; top: 3.7cm; left: 16cm; width: 3.8cm;
-        font-size: 0.59cm; font-weight: bold; font-family: 'Courier New', monospace;
-        color: #000; text-align: left; line-height: 1.1;
+        font-size: 0.59cm; font-weight: bold; font-family: ${popupFontFamily};
+        color: ${popupInkColor}; text-align: left; line-height: 1.1;
       }
     </style>
   </head>
@@ -1476,6 +1527,32 @@ export default function App() {
             <input type="checkbox" id="togglePrintName" checked={!data.hidePayee} onChange={e => setData(d => ({ ...d, hidePayee: !e.target.checked }))} />
             <span className="checkbox-text">Print Payee Name on Cheque?</span>
           </div>
+
+          <div className="input-wrapper">
+            <label className="input-label">Print Font</label>
+            <select
+              className="input-box"
+              value={selectedPrintFont}
+              onChange={e => setData(d => ({ ...d, printFont: e.target.value as PrintFontKey }))}
+            >
+              {Object.entries(FONT_OPTIONS).map(([key, option]) => (
+                <option key={key} value={key}>{option.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="input-wrapper">
+            <label className="input-label">Ink Color</label>
+            <select
+              className="input-box"
+              value={selectedInkColor}
+              onChange={e => setData(d => ({ ...d, inkColor: e.target.value as InkColorKey }))}
+            >
+              {Object.entries(INK_COLOR_OPTIONS).map(([key, option]) => (
+                <option key={key} value={key}>{option.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="card preview-card">
@@ -1484,22 +1561,22 @@ export default function App() {
           <div className="preview-row">
             <div>
               <div className="p-label">Date</div>
-              <div className="p-value" id="prevDate">{formatPreviewDate(data.date)}</div>
+              <div className="p-value" id="prevDate" style={livePreviewTextStyle}>{formatPreviewDate(data.date)}</div>
             </div>
             <div style={{textAlign:'right'}}>
               <div className="p-label">Amount</div>
-              <div className="p-value-lg" id="prevAmountNum">₹ {data.amountInNumbers ? Number(data.amountInNumbers).toLocaleString('en-IN') + '/-' : '0/-'}</div>
+              <div className="p-value-lg" id="prevAmountNum" style={livePreviewTextStyle}>₹ {data.amountInNumbers ? Number(data.amountInNumbers).toLocaleString('en-IN') + '/-' : '0/-'}</div>
             </div>
           </div>
 
           <div style={{marginBottom:12}}>
             <div className="p-label">Pay To</div>
-            <div className="p-value" id="prevPayee" style={{fontSize:'1rem', opacity: data.hidePayee ? 0.4 : 1}}>{data.payTo || 'Start typing...'}</div>
+            <div className="p-value" id="prevPayee" style={{...livePreviewTextStyle, fontSize:'1rem', opacity: data.hidePayee ? 0.4 : 1}}>{data.payTo || 'Start typing...'}</div>
           </div>
 
           <div>
             <div className="p-label">Sum of</div>
-            <div className="p-words" id="prevWords">{data.amountInWords || 'Zero Rupees Only'}</div>
+            <div className="p-words" id="prevWords" style={livePreviewTextStyle}>{data.amountInWords || 'Zero Rupees Only'}</div>
           </div>
         </div>
       </div>
@@ -1758,7 +1835,7 @@ export default function App() {
         </div>
       </div>
 
-      <div className={`cheque-print-container ${exporting ? 'export' : ''}`}>
+      <div className={`cheque-print-container ${exporting ? 'export' : ''}`} style={printStyleVars}>
         <div className="print-date-field">{data.date}</div>
         <div className="print-pay-field">{!data.hidePayee ? data.payTo : ''}</div>
         <div className="print-amount-words">{data.amountInWords}</div>

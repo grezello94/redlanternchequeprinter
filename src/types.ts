@@ -11,5 +11,7 @@ export interface ChequeData {
   payeeName?: string;
   chequeNo: string;   // Requirement #3
   hidePayee: boolean; // Requirement #2
+  printFont?: 'times' | 'handwriting' | 'edwardian' | 'kunstler' | 'courier';
+  inkColor?: 'blue' | 'darkBlue' | 'lightBlue';
   createdAt?: any;    // For Firebase sorting
 }
