@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { db, repairIndexedDbPersistence } from './firebase';
-import { collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs, where, startAt, endAt, startAfter, writeBatch, onSnapshot } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs, where, startAt, endAt, startAfter, writeBatch, onSnapshot, doc, runTransaction } from 'firebase/firestore';
 import type { ChequeData } from './types';
 // print components are not directly imported here; we use print container markup
 
@@ -82,6 +82,8 @@ export default function App() {
   const [pendingQueue, setPendingQueue] = useState<Array<any>>([]);
   const [adminOpen, setAdminOpen] = useState(false);
   const [adminLoading, setAdminLoading] = useState(false);
+  const [adminLookupLoading, setAdminLookupLoading] = useState(false);
+  const [adminSearchName, setAdminSearchName] = useState('');
   const [adminDocs, setAdminDocs] = useState<Array<any>>([]);
   const [dbStatus, setDbStatus] = useState<{ ok: boolean; msg?: string } | null>(null);
   const [showPrintSetup, setShowPrintSetup] = useState(false);
@@ -115,6 +117,7 @@ export default function App() {
   const [livePayeeMatches, setLivePayeeMatches] = useState<string[]>([]);
   const [livePayeesLoading, setLivePayeesLoading] = useState(false);
   const pendingAutoDatePayeeRef = useRef<string | null>(null);
+  const dateManuallyEditedRef = useRef(false);
 
   const normalizePayee = (value: string) =>
     (value || '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -209,6 +212,18 @@ export default function App() {
   const normalizeAmountKey = (v: string) => (v || '').toString().replace(/[^\d.]/g, '').trim();
   const chequeIdentityKey = (r: { payTo?: string; chequeNo?: string; date?: string; amount?: string; amountInNumbers?: string }) =>
     `${normalizePayee(r.payTo || '')}|${(r.chequeNo || '').trim()}|${(r.date || '').trim()}|${normalizeAmountKey((r.amountInNumbers || r.amount || '').toString())}`;
+  const chequeStrictIdentityKey = (r: { payTo?: string; chequeNo?: string; amount?: string; amountInNumbers?: string }) =>
+    `${normalizePayee(r.payTo || '')}|${(r.chequeNo || '').trim()}|${normalizeAmountKey((r.amountInNumbers || r.amount || '').toString())}`;
+  const hashString32 = (value: string) => {
+    let h = 2166136261;
+    for (let i = 0; i < value.length; i++) {
+      h ^= value.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0).toString(36);
+  };
+  const chequeStrictDocId = (r: { payTo?: string; chequeNo?: string; amount?: string; amountInNumbers?: string }) =>
+    `ck_${hashString32(chequeStrictIdentityKey(r))}`;
   const historyKey = (r: { payTo?: string; chequeNo?: string; date?: string; amount?: string; amountInNumbers?: string }) =>
     chequeIdentityKey(r);
 
@@ -394,6 +409,106 @@ export default function App() {
     }
   };
 
+  const loadAdminRecent = async () => {
+    setAdminLoading(true);
+    setDbStatus(null);
+    try {
+      const snap = await withIndexedDbRetry(async () => {
+        const q = query(collection(db, 'cheques'), orderBy('createdAt', 'desc'), limit(50));
+        return await getDocs(q);
+      });
+      setAdminDocs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setDbStatus({ ok: true, msg: `Loaded ${snap.size} latest records` });
+    } catch (e: any) {
+      console.warn('admin load failed', e);
+      setAdminDocs([]);
+      setDbStatus({ ok: false, msg: e.message || 'Unknown error' });
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const searchAdminByPayee = async () => {
+    const raw = (adminSearchName || '').trim();
+    const normalized = normalizePayee(raw);
+    if (!normalized) {
+      setDbStatus({ ok: false, msg: 'Enter a payee name to search.' });
+      return;
+    }
+
+    setAdminLookupLoading(true);
+    setDbStatus(null);
+    try {
+      const docsById = new Map<string, any>();
+      const addDocs = (docs: any[]) => {
+        for (const d of docs) {
+          if (!docsById.has(d.id)) docsById.set(d.id, d);
+        }
+      };
+
+      try {
+        const byLower = await withIndexedDbRetry(async () => {
+          const q = query(
+            collection(db, 'cheques'),
+            where('payToLower', '==', normalized),
+            orderBy('createdAt', 'desc'),
+            limit(200)
+          );
+          return await getDocs(q);
+        });
+        addDocs(byLower.docs);
+      } catch (e) {
+        console.warn('Admin lookup by payToLower failed', e);
+      }
+
+      const matchingPayeeNames = new Set<string>();
+      try {
+        const payeeSnap = await withIndexedDbRetry(async () => {
+          const q = query(collection(db, 'payees'), where('nameLower', '==', normalized), limit(10));
+          return await getDocs(q);
+        });
+        for (const d of payeeSnap.docs) {
+          const name = (d.data().name as string || '').trim();
+          if (name) matchingPayeeNames.add(name);
+        }
+      } catch (e) {
+        console.warn('Admin lookup in payees failed', e);
+      }
+
+      if (raw) matchingPayeeNames.add(raw);
+
+      for (const name of matchingPayeeNames) {
+        try {
+          const byPayTo = await withIndexedDbRetry(async () => {
+            const q = query(
+              collection(db, 'cheques'),
+              where('payTo', '==', name),
+              orderBy('createdAt', 'desc'),
+              limit(100)
+            );
+            return await getDocs(q);
+          });
+          addDocs(byPayTo.docs);
+        } catch (e) {
+          console.warn('Admin lookup by payTo failed', e);
+        }
+      }
+
+      const result = Array.from(docsById.values()).map(d => ({ id: d.id, ...d.data() }));
+      setAdminDocs(result);
+      if (result.length > 0) {
+        setDbStatus({ ok: true, msg: `Found ${result.length} record(s) for "${raw}".` });
+      } else {
+        setDbStatus({ ok: false, msg: `No records found for "${raw}" in searched remote queries.` });
+      }
+    } catch (e: any) {
+      console.warn('Admin payee search failed', e);
+      setDbStatus({ ok: false, msg: e?.message || 'Payee search failed' });
+    } finally {
+      setAdminLookupLoading(false);
+    }
+  };
+
   const isIndexedDbError = (e: any) => {
     const msg = (e?.message || '').toString();
     return e?.name === 'IndexedDbTransactionError' ||
@@ -563,7 +678,24 @@ export default function App() {
           chequeNo: p.chequeNo || '',
         });
         if (duplicate) continue;
-        await addDoc(collection(db, 'cheques'), { payTo: p.payTo, payToLower: normalizePayee(p.payTo || ''), date: p.date, amountInNumbers: p.amountInNumbers, amountInWords: p.amountInWords, chequeNo: p.chequeNo, issuedAt, issuedDay: p.issuedDay || isoToDay(issuedAt), createdAt: serverTimestamp() });
+        const payload = {
+          payTo: (p.payTo || '').trim(),
+          payToLower: normalizePayee(p.payTo || ''),
+          date: (p.date || '').trim(),
+          amountInNumbers: (p.amountInNumbers || '').trim(),
+          amountInWords: (p.amountInWords || '').trim(),
+          chequeNo: (p.chequeNo || '').trim(),
+          issuedAt,
+          issuedDay: p.issuedDay || isoToDay(issuedAt),
+        };
+        const uniqueRef = doc(db, 'cheques', chequeStrictDocId(payload));
+        const outcome = await runTransaction(db, async (tx) => {
+          const snap = await tx.get(uniqueRef);
+          if (snap.exists()) return 'duplicate';
+          tx.set(uniqueRef, { ...payload, createdAt: serverTimestamp(), uniqueKey: chequeStrictIdentityKey(payload), duplicateGuardV: 1 });
+          return 'saved';
+        });
+        if (outcome === 'duplicate') continue;
       } catch (e) {
         console.warn('flushPending item failed', e, p);
         remaining.push(p);
@@ -658,11 +790,16 @@ export default function App() {
   useEffect(() => {
     const key = normalizePayee(data.payTo || '');
     pendingAutoDatePayeeRef.current = key || null;
+    dateManuallyEditedRef.current = false;
   }, [data.payTo]);
 
   useEffect(() => {
     const pendingKey = pendingAutoDatePayeeRef.current;
     if (!pendingKey || !recentCheques.length) return;
+    if (dateManuallyEditedRef.current || bifurcateSession) {
+      pendingAutoDatePayeeRef.current = null;
+      return;
+    }
     const latest = recentCheques[0];
     const latestPayeeKey = normalizePayee(latest?.payTo || '');
     if (latestPayeeKey !== pendingKey) return;
@@ -673,7 +810,7 @@ export default function App() {
     }
     setData(d => (d.date === latestDate ? d : { ...d, date: latestDate }));
     pendingAutoDatePayeeRef.current = null;
-  }, [recentCheques]);
+  }, [recentCheques, bifurcateSession]);
 
   const addPayee = async (name?: string) => {
     const v = (name || data.payTo || '').trim();
@@ -1062,13 +1199,14 @@ export default function App() {
     }
   ) => {
     const key = chequeIdentityKey(record);
+    const strictKey = chequeStrictIdentityKey(record);
     if (!key) return false;
 
-    if (historyRecords.some(r => historyKey(r) === key)) return true;
+    if (historyRecords.some(r => chequeStrictIdentityKey(r) === strictKey)) return true;
 
     try {
       const pending = loadPendingFromStorage();
-      if (pending.some((p: any) => chequeIdentityKey(p) === key)) return true;
+      if (pending.some((p: any) => chequeStrictIdentityKey(p) === strictKey)) return true;
     } catch { /* no-op */ }
 
     const payToLower = record.payToLower || normalizePayee(record.payTo || '');
@@ -1078,7 +1216,6 @@ export default function App() {
           collection(db, 'cheques'),
           where('payToLower', '==', payToLower),
           where('chequeNo', '==', (record.chequeNo || '').trim()),
-          where('date', '==', (record.date || '').trim()),
           where('amountInNumbers', '==', (record.amountInNumbers || '').trim()),
           limit(1)
         );
@@ -1095,7 +1232,6 @@ export default function App() {
           collection(db, 'cheques'),
           where('payTo', '==', (record.payTo || '').trim()),
           where('chequeNo', '==', (record.chequeNo || '').trim()),
-          where('date', '==', (record.date || '').trim()),
           where('amountInNumbers', '==', (record.amountInNumbers || '').trim()),
           limit(1)
         );
@@ -1136,7 +1272,7 @@ export default function App() {
     };
     const duplicate = await isDuplicateChequeRecord(normalizedRecord);
     if (duplicate) {
-      window.confirm('Duplicate cheque found (same Name + Cheque No + Amount + Date).\nThis record will NOT be saved.');
+      window.confirm('Duplicate cheque found (same Name + Cheque No + Amount).\nThis record will NOT be saved.');
       setSaveError('Duplicate cheque detected. Save blocked.');
       setTimeout(() => setSaveError(null), 3500);
       return { savedRemotely: false, duplicate: true };
@@ -1144,7 +1280,19 @@ export default function App() {
 
     let savedRemotely = false;
     try {
-      await addDoc(collection(db, 'cheques'), { ...normalizedRecord, createdAt: serverTimestamp() });
+      const uniqueRef = doc(db, 'cheques', chequeStrictDocId(normalizedRecord));
+      const outcome = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(uniqueRef);
+        if (snap.exists()) return 'duplicate';
+        tx.set(uniqueRef, { ...normalizedRecord, createdAt: serverTimestamp(), uniqueKey: chequeStrictIdentityKey(normalizedRecord), duplicateGuardV: 1 });
+        return 'saved';
+      });
+      if (outcome === 'duplicate') {
+        window.confirm('Duplicate cheque found (same Name + Cheque No + Amount).\nThis record will NOT be saved.');
+        setSaveError('Duplicate cheque detected. Save blocked.');
+        setTimeout(() => setSaveError(null), 3500);
+        return { savedRemotely: false, duplicate: true };
+      }
       savedRemotely = true;
     } catch (e) {
       console.warn('Remote save failed, queuing locally', e);
@@ -1181,9 +1329,17 @@ export default function App() {
       return true;
     }
 
-    const dateText = formatPreviewDate(bifurcateSession.date || '');
+    const records = bifurcateSession.printedRecords.slice(0, bifurcateSession.amounts.length);
+    if (!records.length) {
+      setSaveError('No printed split records found. Please print again.');
+      setTimeout(() => setSaveError(null), 3200);
+      return true;
+    }
+
     const enteredNos: string[] = [];
     for (let i = 0; i < bifurcateSession.amounts.length; i++) {
+      const promptDate = records[i]?.date || bifurcateSession.date || '';
+      const dateText = formatPreviewDate(promptDate);
       const entered = window.prompt(
         `Enter cheque number for split ${i + 1}/${bifurcateSession.amounts.length} on ${dateText} (₹${bifurcateSession.amounts[i]}/-):`
       );
@@ -1197,16 +1353,9 @@ export default function App() {
     // Reserve a window during the user gesture so browsers don't block WA after async saves.
     const waWindow = window.open('about:blank', '_blank');
 
-    const records = bifurcateSession.printedRecords.slice(0, bifurcateSession.amounts.length);
-    if (!records.length) {
-      setSaveError('No printed split records found. Please print again.');
-      setTimeout(() => setSaveError(null), 3200);
-      return true;
-    }
-
     for (let i = 0; i < records.length; i++) {
       const rec = records[i];
-      await persistChequeRecord({
+      const result = await persistChequeRecord({
         payTo: rec.payTo || bifurcateSession.payTo || '',
         payToLower: normalizePayee(rec.payTo || bifurcateSession.payTo || ''),
         date: rec.date || bifurcateSession.date || '',
@@ -1215,6 +1364,10 @@ export default function App() {
         chequeNo: enteredNos[i] || '',
         issuedAt: rec.issuedAt || new Date().toISOString(),
       }, { openHistory: i === records.length - 1 });
+      if (result.duplicate) {
+        try { waWindow?.close(); } catch { /* no-op */ }
+        return true;
+      }
     }
 
     const message = buildBifurcationMessage(
@@ -1457,6 +1610,8 @@ export default function App() {
                         return;
                       }
                       const sessionDate = data.date || new Date().toLocaleDateString('en-GB').replace(/\//g, '');
+                      dateManuallyEditedRef.current = true;
+                      pendingAutoDatePayeeRef.current = null;
                       setBifurcateSession({
                         amounts,
                         chequeNos: Array.from({ length: amounts.length }, () => ''),
@@ -1520,7 +1675,16 @@ export default function App() {
 
           <div className="input-wrapper">
             <label className="input-label">Date</label>
-            <input className="input-box" type="date" id="inputDate" value={dateToInput(data.date)} onChange={e => setData(d => ({ ...d, date: inputToStored(e.target.value) }))} />
+            <input
+              className="input-box"
+              type="date"
+              id="inputDate"
+              value={dateToInput(data.date)}
+              onChange={e => {
+                dateManuallyEditedRef.current = true;
+                setData(d => ({ ...d, date: inputToStored(e.target.value) }));
+              }}
+            />
           </div>
 
           <div className="checkbox-wrapper" onClick={() => setData(d => ({ ...d, hidePayee: !d.hidePayee }))}>
@@ -1786,33 +1950,31 @@ export default function App() {
         <div className="drawer-header">
           <span className="drawer-title">Admin - Pending & Remote</span>
           <div style={{display:'flex', gap:8}}>
-            <button onClick={async () => {
-              setAdminLoading(true);
-              setDbStatus(null);
-              try {
-                // try load some docs from Firestore (best-effort)
-                const snap = await withIndexedDbRetry(async () => {
-                  const q = query(collection(db, 'cheques'), orderBy('createdAt', 'desc'), limit(50));
-                  return await getDocs(q);
-                });
-                setAdminDocs(snap.docs.map(d => ({ id: d.id, ...d.data() }))); 
-                setDbStatus({ ok: true });
-              } catch (e: any) { 
-                console.warn('admin load failed', e); 
-                setAdminDocs([]); 
-                setDbStatus({ ok: false, msg: e.message || 'Unknown error' });
-              }
-              setAdminLoading(false);
-            }}>Refresh</button>
+            <button onClick={loadAdminRecent}>Refresh</button>
             <button onClick={() => setAdminOpen(false)} style={{background:'none', border:'none', fontSize:'1.5rem', cursor:'pointer'}}>&times;</button>
           </div>
         </div>
         <div style={{padding:16}}>
           {dbStatus && (
             <div style={{ padding: '8px 12px', marginBottom: 16, borderRadius: 6, backgroundColor: dbStatus.ok ? '#dcfce7' : '#fee2e2', color: dbStatus.ok ? '#166534' : '#991b1b', fontSize: '0.9rem' }}>
-              {dbStatus.ok ? '✅ Database is operational' : `❌ Database Error: ${dbStatus.msg}`}
+              {dbStatus.ok ? `✅ ${dbStatus.msg || 'Database is operational'}` : `❌ ${dbStatus.msg || 'Database error'}`}
             </div>
           )}
+          <div style={{display:'flex', gap:8, marginBottom:12}}>
+            <input
+              className="history-input"
+              type="text"
+              placeholder="Search exact payee in remote DB (e.g. afsha)"
+              value={adminSearchName}
+              onChange={e => setAdminSearchName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') searchAdminByPayee();
+              }}
+            />
+            <button onClick={searchAdminByPayee} disabled={adminLookupLoading}>
+              {adminLookupLoading ? 'Searching...' : 'Find Payee'}
+            </button>
+          </div>
           <div style={{marginBottom:12}}><strong>Pending (local)</strong></div>
           {pendingQueue.length === 0 ? (
             <div style={{color:'#888', padding:12}}>No pending items</div>
