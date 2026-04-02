@@ -50,8 +50,8 @@ export default function App() {
     payeeName: 'FOR RED LANTERN RESTAURANT',
     chequeNo: '',
     hidePayee: false,
-    printFont: 'times',
-    inkColor: 'blue',
+    printFont: 'courier',
+    inkColor: 'darkBlue',
   });
 
   const [payees, setPayees] = useState<string[]>([]);
@@ -76,6 +76,7 @@ export default function App() {
   const [historyFrom, setHistoryFrom] = useState('');
   const [historyTo, setHistoryTo] = useState('');
   const [lastSavedRecord, setLastSavedRecord] = useState<{ payTo: string; amountInNumbers: string; date: string; chequeNo: string } | null>(null);
+  const [pendingWhatsAppMessage, setPendingWhatsAppMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [printingToast, setPrintingToast] = useState<string | null>(null);
@@ -108,6 +109,7 @@ export default function App() {
     date: string;
   } | null>(null);
   const WA_TARGET_KEY = 'rl_whatsapp_target_v1';
+  const WA_WINDOW_NAME = 'rl_whatsapp_window';
   const PAYEES_CACHE_KEY = 'rl_payees_cache_v1';
   const PAYEES_MIGRATION_KEY = 'rl_payees_migrated_nameLower_v1';
   const PAYEES_PAGE_SIZE = 500;
@@ -118,6 +120,7 @@ export default function App() {
   const [livePayeesLoading, setLivePayeesLoading] = useState(false);
   const pendingAutoDatePayeeRef = useRef<string | null>(null);
   const dateManuallyEditedRef = useRef(false);
+  const waWindowRef = useRef<Window | null>(null);
 
   const normalizePayee = (value: string) =>
     (value || '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -896,10 +899,10 @@ export default function App() {
     return parts.join('.') + '/-';
   };
 
-  const selectedPrintFont = (data.printFont || 'times') as PrintFontKey;
-  const selectedInkColor = (data.inkColor || 'blue') as InkColorKey;
-  const printFontFamily = FONT_OPTIONS[selectedPrintFont]?.cssFamily || FONT_OPTIONS.times.cssFamily;
-  const printInkColor = INK_COLOR_OPTIONS[selectedInkColor]?.hex || INK_COLOR_OPTIONS.blue.hex;
+  const selectedPrintFont = (data.printFont || 'courier') as PrintFontKey;
+  const selectedInkColor = (data.inkColor || 'darkBlue') as InkColorKey;
+  const printFontFamily = FONT_OPTIONS[selectedPrintFont]?.cssFamily || FONT_OPTIONS.courier.cssFamily;
+  const printInkColor = INK_COLOR_OPTIONS[selectedInkColor]?.hex || INK_COLOR_OPTIONS.darkBlue.hex;
   const printStyleVars = {
     '--print-font-family': printFontFamily,
     '--print-ink-color': printInkColor,
@@ -943,10 +946,14 @@ export default function App() {
   };
 
   const getWhatsAppUrl = (message: string) => {
-    let target = getWhatsAppTarget();
-    if (!target) {
-      target = isMobileDevice() ? 'app' : 'web';
+    const mobile = isMobileDevice();
+    let target: 'web' | 'app' = 'web';
+    if (mobile) {
+      target = getWhatsAppTarget() || 'app';
       setWhatsAppTarget(target);
+    } else {
+      // On desktop always use WhatsApp Web for consistent same-tab behavior.
+      setWhatsAppTarget('web');
     }
     const encoded = encodeURIComponent(message);
     return target === 'web'
@@ -956,18 +963,28 @@ export default function App() {
 
   const openWhatsApp = (message: string, preopened?: Window | null) => {
     const url = getWhatsAppUrl(message);
-    if (preopened && !preopened.closed) {
+    if (waWindowRef.current && !waWindowRef.current.closed) {
       try {
-        preopened.location.href = url;
-        preopened.focus();
-        return;
+        waWindowRef.current.location.href = url;
+        waWindowRef.current.focus();
+        return true;
       } catch { /* no-op */ }
     }
-    const opened = window.open(url, '_blank');
-    if (!opened) {
-      // Last fallback so WhatsApp still opens even if popup is blocked.
-      window.location.href = url;
+    if (preopened && !preopened.closed) {
+      try {
+        waWindowRef.current = preopened;
+        preopened.location.href = url;
+        preopened.focus();
+        return true;
+      } catch { /* no-op */ }
     }
+    const opened = window.open(url, WA_WINDOW_NAME);
+    if (opened) {
+      waWindowRef.current = opened;
+      try { opened.focus(); } catch { /* no-op */ }
+      return true;
+    }
+    return false;
   };
 
   const escapeHtml = (value: string) =>
@@ -987,10 +1004,10 @@ export default function App() {
     const payTo = escapeHtml(snapshot.hidePayee ? '' : (snapshot.payTo || ''));
     const amountWords = escapeHtml(snapshot.amountInWords || '');
     const amountNum = escapeHtml(formatAmountForPrint(snapshot.amountInNumbers || ''));
-    const snapshotFont = (snapshot.printFont || 'times') as PrintFontKey;
-    const snapshotInk = (snapshot.inkColor || 'blue') as InkColorKey;
-    const popupFontFamily = FONT_OPTIONS[snapshotFont]?.cssFamily || FONT_OPTIONS.times.cssFamily;
-    const popupInkColor = INK_COLOR_OPTIONS[snapshotInk]?.hex || INK_COLOR_OPTIONS.blue.hex;
+    const snapshotFont = (snapshot.printFont || 'courier') as PrintFontKey;
+    const snapshotInk = (snapshot.inkColor || 'darkBlue') as InkColorKey;
+    const popupFontFamily = FONT_OPTIONS[snapshotFont]?.cssFamily || FONT_OPTIONS.courier.cssFamily;
+    const popupInkColor = INK_COLOR_OPTIONS[snapshotInk]?.hex || INK_COLOR_OPTIONS.darkBlue.hex;
 
     popup.document.open();
     popup.document.write(`<!doctype html>
@@ -1351,7 +1368,7 @@ export default function App() {
     }
 
     // Reserve a window during the user gesture so browsers don't block WA after async saves.
-    const waWindow = window.open('about:blank', '_blank');
+    const waWindow = window.open('about:blank', WA_WINDOW_NAME);
 
     for (let i = 0; i < records.length; i++) {
       const rec = records[i];
@@ -1375,7 +1392,14 @@ export default function App() {
       records.map(r => ({ date: r.date || bifurcateSession.date || '', amountInNumbers: r.amountInNumbers || '' })),
       enteredNos
     );
-    openWhatsApp(message, waWindow);
+    const waOpened = openWhatsApp(message, waWindow);
+    if (!waOpened) {
+      setPendingWhatsAppMessage(message);
+      setSaveError('WhatsApp did not open. Tap WhatsApp again to resend.');
+      setTimeout(() => setSaveError(null), 3200);
+    } else {
+      setPendingWhatsAppMessage(null);
+    }
     setBifurcateSession(null);
     setBifurcateEnabled(false);
     setBifurcateTotal('');
@@ -1405,13 +1429,20 @@ export default function App() {
       const year = record.date?.slice(4) || '';
       const amt = record.amountInNumbers ? `${record.amountInNumbers}/-` : '';
       const message = `${record.payTo || ''} ${amt} on ${day}/${month}/${year} : ${record.chequeNo || chequeNo}`.trim();
-      const waWindow = window.open('about:blank', '_blank');
+      const waWindow = window.open('about:blank', WA_WINDOW_NAME);
       const saveResult = await persistChequeRecord(record, { openHistory: true });
       if (saveResult.duplicate) {
         try { waWindow?.close(); } catch { /* no-op */ }
         return;
       }
-      openWhatsApp(message, waWindow);
+      const waOpened = openWhatsApp(message, waWindow);
+      if (!waOpened) {
+        setPendingWhatsAppMessage(message);
+        setSaveError('WhatsApp did not open. Tap WhatsApp again to resend.');
+        setTimeout(() => setSaveError(null), 3200);
+        return;
+      }
+      setPendingWhatsAppMessage(null);
       setData(d => ({ ...d, chequeNo: '' }));
       setLastPrinted(null);
     } catch (e: any) { console.error('Save failed', e); setSaveError('Save failed: ' + (e?.message || e)); }
@@ -1781,6 +1812,16 @@ export default function App() {
         </button>
 
         <button className="dock-btn btn-wa" onClick={async () => {
+          if (pendingWhatsAppMessage) {
+            const resent = openWhatsApp(pendingWhatsAppMessage);
+            if (!resent) {
+              setSaveError('WhatsApp is blocked. Allow popups, then tap WhatsApp again.');
+              setTimeout(() => setSaveError(null), 3200);
+              return;
+            }
+            setPendingWhatsAppMessage(null);
+            return;
+          }
           if (bifurcateSession) {
             await finalizeBifurcationSaveAndSend();
             return;
@@ -1810,7 +1851,14 @@ export default function App() {
 
           const message = `${payTo} ${amountNum}/- on ${dateText} : ${chq}`.trim();
           console.log('WA button message:', message, { source, payTo, amountNum, dateText, chq });
-          openWhatsApp(message);
+          const waOpened = openWhatsApp(message);
+          if (!waOpened) {
+            setPendingWhatsAppMessage(message);
+            setSaveError('WhatsApp did not open. Tap WhatsApp again to resend.');
+            setTimeout(() => setSaveError(null), 3200);
+          } else {
+            setPendingWhatsAppMessage(null);
+          }
 
           // Save automatically for this WhatsApp action so history always gets the entered cheque number.
           const record = {
