@@ -37,6 +37,8 @@ const INK_COLOR_OPTIONS = {
 
 type PrintFontKey = keyof typeof FONT_OPTIONS;
 type InkColorKey = keyof typeof INK_COLOR_OPTIONS;
+const DEFAULT_PRINT_FONT: PrintFontKey = 'courier';
+const DEFAULT_INK_COLOR: InkColorKey = 'darkBlue';
 
 export default function App() {
   const [data, setData] = useState<ChequeData>({
@@ -50,8 +52,8 @@ export default function App() {
     payeeName: 'FOR RED LANTERN RESTAURANT',
     chequeNo: '',
     hidePayee: false,
-    printFont: 'courier',
-    inkColor: 'darkBlue',
+    printFont: DEFAULT_PRINT_FONT,
+    inkColor: DEFAULT_INK_COLOR,
   });
 
   const [payees, setPayees] = useState<string[]>([]);
@@ -612,6 +614,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    setData(d => ({
+      ...d,
+      printFont: DEFAULT_PRINT_FONT,
+      inkColor: DEFAULT_INK_COLOR,
+    }));
+  }, []);
+
+  useEffect(() => {
     if (!historyOpen) return;
     if (!historyRecords.length || historyError) {
       loadHistoryPage({ reset: true });
@@ -899,10 +909,10 @@ export default function App() {
     return parts.join('.') + '/-';
   };
 
-  const selectedPrintFont = (data.printFont || 'courier') as PrintFontKey;
-  const selectedInkColor = (data.inkColor || 'darkBlue') as InkColorKey;
-  const printFontFamily = FONT_OPTIONS[selectedPrintFont]?.cssFamily || FONT_OPTIONS.courier.cssFamily;
-  const printInkColor = INK_COLOR_OPTIONS[selectedInkColor]?.hex || INK_COLOR_OPTIONS.darkBlue.hex;
+  const selectedPrintFont = (data.printFont || DEFAULT_PRINT_FONT) as PrintFontKey;
+  const selectedInkColor = (data.inkColor || DEFAULT_INK_COLOR) as InkColorKey;
+  const printFontFamily = FONT_OPTIONS[selectedPrintFont]?.cssFamily || FONT_OPTIONS[DEFAULT_PRINT_FONT].cssFamily;
+  const printInkColor = INK_COLOR_OPTIONS[selectedInkColor]?.hex || INK_COLOR_OPTIONS[DEFAULT_INK_COLOR].hex;
   const printStyleVars = {
     '--print-font-family': printFontFamily,
     '--print-ink-color': printInkColor,
@@ -1004,10 +1014,10 @@ export default function App() {
     const payTo = escapeHtml(snapshot.hidePayee ? '' : (snapshot.payTo || ''));
     const amountWords = escapeHtml(snapshot.amountInWords || '');
     const amountNum = escapeHtml(formatAmountForPrint(snapshot.amountInNumbers || ''));
-    const snapshotFont = (snapshot.printFont || 'courier') as PrintFontKey;
-    const snapshotInk = (snapshot.inkColor || 'darkBlue') as InkColorKey;
-    const popupFontFamily = FONT_OPTIONS[snapshotFont]?.cssFamily || FONT_OPTIONS.courier.cssFamily;
-    const popupInkColor = INK_COLOR_OPTIONS[snapshotInk]?.hex || INK_COLOR_OPTIONS.darkBlue.hex;
+    const snapshotFont = (snapshot.printFont || DEFAULT_PRINT_FONT) as PrintFontKey;
+    const snapshotInk = (snapshot.inkColor || DEFAULT_INK_COLOR) as InkColorKey;
+    const popupFontFamily = FONT_OPTIONS[snapshotFont]?.cssFamily || FONT_OPTIONS[DEFAULT_PRINT_FONT].cssFamily;
+    const popupInkColor = INK_COLOR_OPTIONS[snapshotInk]?.hex || INK_COLOR_OPTIONS[DEFAULT_INK_COLOR].hex;
 
     popup.document.open();
     popup.document.write(`<!doctype html>
