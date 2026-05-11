@@ -70,6 +70,32 @@ header {
     box-sizing: border-box;
 }
 
+@media (min-width: 980px) {
+    .container {
+        max-width: 1180px;
+        display: grid;
+        grid-template-columns: minmax(420px, 560px) minmax(380px, 1fr);
+        gap: 24px;
+        align-items: start;
+    }
+
+    .preview-card {
+        position: sticky;
+        top: 88px;
+    }
+
+    .bottom-dock {
+        left: 50%;
+        right: auto;
+        bottom: 24px;
+        top: auto;
+        transform: translateX(-50%);
+        width: min(580px, calc(100% - 48px));
+        max-width: 580px;
+        flex-direction: row;
+    }
+}
+
 /* --- CARD STYLES --- */
 .card {
     background: var(--bg-card);
@@ -318,6 +344,24 @@ header {
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
     transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
+.preview-cross-cheque {
+    position: absolute;
+    top: 24px;
+    left: 20px;
+    width: 128px;
+    height: 28px;
+    transform: rotate(-18deg);
+    transform-origin: left top;
+}
+.preview-cross-cheque span {
+    position: absolute;
+    left: -20px;
+    width: 148px;
+    height: 0;
+    border-top: 2px solid var(--primary);
+}
+.preview-cross-cheque span:first-child { top: 8px; }
+.preview-cross-cheque span:last-child { top: 18px; }
 .preview-card:hover {
     transform: translateY(-2px);
     box-shadow: 0 12px 24px -4px rgba(0, 0, 0, 0.06), 0 6px 12px -4px rgba(0, 0, 0, 0.03);
@@ -375,6 +419,10 @@ header {
 
 .btn-history { width: 52px; background: #F1F5F9; color: var(--text-muted); }
 .btn-history.active { color: var(--primary); background: var(--primary-light); }
+
+.btn-admin { width: 52px; background: #EEF2FF; color: var(--primary); }
+
+.btn-save { width: 52px; background: #F0FDF4; color: #15803D; }
 
 .btn-print { 
     flex: 1; 
@@ -461,6 +509,35 @@ header {
 .history-btn.ghost { background: #f1f5f9; color: var(--text-main); }
 .history-meta { padding: 8px 20px 0; font-size: 0.8rem; color: var(--text-muted); }
 
+.split-cheque-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 8px;
+}
+.split-cheque-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+.split-cheque-field input {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font: inherit;
+    font-size: 0.95rem;
+    color: var(--text-main);
+    background: #fff;
+}
+.split-cheque-field input:disabled {
+    color: var(--text-muted);
+    background: #f1f5f9;
+}
+
 .history-list { flex: 1; overflow-y: auto; padding: 20px; }
 .history-item {
     display: flex; justify-content: space-between; align-items: center;
@@ -491,6 +568,17 @@ header {
     height: 9.5cm;
     background: transparent;
 }
+.print-cross-cheque {
+    position: absolute; top: 0.38cm; left: 0.42cm; width: 5cm; height: 1.1cm;
+    transform: rotate(-18deg); transform-origin: left top;
+    z-index: 2;
+}
+.print-cross-cheque span {
+    position: absolute; left: -0.42cm; width: 5.42cm; height: 0;
+    border-top: 0.035cm solid var(--print-ink-color, #1d4ed8);
+}
+.print-cross-cheque span:first-child { top: 0.24cm; }
+.print-cross-cheque span:last-child { top: 0.58cm; }
 @media print {
     .container, header, .bottom-dock, .history-drawer, .history-overlay { display: none !important; }
     body { background: none; } body * { visibility: hidden; }

@@ -52,6 +52,7 @@ export default function App() {
     payeeName: 'FOR RED LANTERN RESTAURANT',
     chequeNo: '',
     hidePayee: false,
+    crossCheque: false,
     printFont: DEFAULT_PRINT_FONT,
     inkColor: DEFAULT_INK_COLOR,
   });
@@ -105,6 +106,7 @@ export default function App() {
       date: string;
       amountInNumbers: string;
       amountInWords: string;
+      chequeNo: string;
       issuedAt: string;
     }>;
     payTo: string;
@@ -943,6 +945,62 @@ export default function App() {
     return [`${payTo}`, ...lines].join('\n');
   };
 
+  const updateBifurcationChequeNo = (index: number, value: string) => {
+    const cleaned = (value || '').replace(/\D/g, '');
+    setBifurcateSession(prev => {
+      if (!prev) return prev;
+      const chequeNos = [...prev.chequeNos];
+      chequeNos[index] = cleaned;
+      return { ...prev, chequeNos };
+    });
+    if (bifurcateSession?.currentIndex === index) {
+      setData(d => ({ ...d, chequeNo: cleaned }));
+    }
+  };
+
+  const promptBifurcationChequeNumbers = (amounts: string[], existing: string[] = []) => {
+    const enteredNos: string[] = [];
+    for (let i = 0; i < amounts.length; i++) {
+      const current = existing[i] || '';
+      const entered = window.prompt(
+        `Enter cheque number for split ${i + 1}/${amounts.length} (₹${amounts[i]}/-) before printing:`,
+        current
+      );
+      if (!entered || !entered.trim()) {
+        alert('Bifurcation not started. All cheque numbers are required before printing.');
+        return null;
+      }
+      const cleaned = entered.trim().replace(/\D/g, '');
+      if (!cleaned) {
+        alert('Bifurcation not started. Cheque numbers must contain digits.');
+        return null;
+      }
+      enteredNos.push(cleaned);
+    }
+    return enteredNos;
+  };
+
+  const reprintLastBifurcationSplit = () => {
+    if (!bifurcateSession || bifurcateSession.printedCount <= 0) return;
+    const previousIndex = bifurcateSession.printedCount - 1;
+    const amount = bifurcateSession.amounts[previousIndex] || '';
+    const chequeNo = bifurcateSession.chequeNos[previousIndex] || '';
+    setBifurcateSession({
+      ...bifurcateSession,
+      currentIndex: previousIndex,
+      printedCount: previousIndex,
+      printedRecords: bifurcateSession.printedRecords.slice(0, previousIndex),
+    });
+    setData(d => ({
+      ...d,
+      amountInNumbers: amount,
+      amountInWords: numberToWords(amount),
+      chequeNo,
+    }));
+    setSystemToast('Last split reopened. Enter the replacement cheque number and print again.');
+    setTimeout(() => setSystemToast(null), 3000);
+  };
+
   const getWhatsAppTarget = (): 'web' | 'app' | null => {
     try {
       const saved = localStorage.getItem(WA_TARGET_KEY);
@@ -997,6 +1055,19 @@ export default function App() {
     return false;
   };
 
+  const reserveWhatsAppWindow = () => {
+    if (waWindowRef.current && !waWindowRef.current.closed) return waWindowRef.current;
+    const opened = window.open('about:blank', WA_WINDOW_NAME);
+    if (opened) {
+      waWindowRef.current = opened;
+      try {
+        opened.document.title = 'WhatsApp';
+        opened.document.body.innerHTML = '<p style="font-family: sans-serif; padding: 16px;">Saving cheque, then opening WhatsApp...</p>';
+      } catch { /* no-op */ }
+    }
+    return opened;
+  };
+
   const escapeHtml = (value: string) =>
     (value || '')
       .replace(/&/g, '&amp;')
@@ -1014,6 +1085,9 @@ export default function App() {
     const payTo = escapeHtml(snapshot.hidePayee ? '' : (snapshot.payTo || ''));
     const amountWords = escapeHtml(snapshot.amountInWords || '');
     const amountNum = escapeHtml(formatAmountForPrint(snapshot.amountInNumbers || ''));
+    const crossingMarkup = snapshot.crossCheque
+      ? '<div class="print-cross-cheque"><span></span><span></span></div>'
+      : '';
     const snapshotFont = (snapshot.printFont || DEFAULT_PRINT_FONT) as PrintFontKey;
     const snapshotInk = (snapshot.inkColor || DEFAULT_INK_COLOR) as InkColorKey;
     const popupFontFamily = FONT_OPTIONS[snapshotFont]?.cssFamily || FONT_OPTIONS[DEFAULT_PRINT_FONT].cssFamily;
@@ -1030,6 +1104,16 @@ export default function App() {
       @page { size: 20.4cm 9.5cm; margin: 0; }
       html, body { margin: 0; padding: 0; width: 20.4cm; height: 9.5cm; overflow: hidden; background: transparent; }
       .cheque-print-container { position: relative; width: 20.4cm; height: 9.5cm; background: transparent; }
+      .print-cross-cheque {
+        position: absolute; top: 0.38cm; left: 0.42cm; width: 5cm; height: 1.1cm;
+        transform: rotate(-18deg); transform-origin: left top;
+      }
+      .print-cross-cheque span {
+        position: absolute; left: -0.42cm; width: 5.42cm; height: 0;
+        border-top: 0.035cm solid ${popupInkColor};
+      }
+      .print-cross-cheque span:first-child { top: 0.24cm; }
+      .print-cross-cheque span:last-child { top: 0.58cm; }
       .print-date-field {
         position: absolute; top: 1cm; left: 15.9cm; width: 4.4cm;
         font-size: 0.50cm; font-weight: bold; font-family: ${popupFontFamily};
@@ -1055,6 +1139,7 @@ export default function App() {
   </head>
   <body>
     <div class="cheque-print-container">
+      ${crossingMarkup}
       <div class="print-date-field">${date}</div>
       <div class="print-pay-field">${payTo}</div>
       <div class="print-amount-words">${amountWords}</div>
@@ -1103,6 +1188,14 @@ export default function App() {
       setTimeout(() => setPrintingToast(null), 2500);
       return;
     }
+    const requiredChequeNo = bifurcateSession
+      ? (bifurcateSession.chequeNos[bifurcateSession.currentIndex] || '').trim()
+      : (data.chequeNo || '').trim();
+    if (!requiredChequeNo) {
+      setPrintingToast('Please enter cheque number before printing.');
+      setTimeout(() => setPrintingToast(null), 2500);
+      return;
+    }
     // If payee is new, fire-and-forget add (do NOT await) so the print dialog is triggered by the user gesture
     try {
       if (!findExistingPayee((data.payTo || '').trim())) {
@@ -1113,8 +1206,7 @@ export default function App() {
     }
 
     // Save snapshot synchronously so save/WhatsApp use exact printed values.
-    // Start a fresh print session; cheque number must be entered per print.
-    const printSnapshot = { ...data, chequeNo: '' };
+    const printSnapshot = { ...data, chequeNo: requiredChequeNo };
     setLastPrinted(printSnapshot);
     setLastPrintedAt(new Date().toISOString());
     if (!canDirectPrint()) {
@@ -1144,18 +1236,20 @@ export default function App() {
           date: printSnapshot.date || bifurcateSession.date || '',
           amountInNumbers: printSnapshot.amountInNumbers || '',
           amountInWords: printSnapshot.amountInWords || '',
+          chequeNo: requiredChequeNo,
           issuedAt: new Date().toISOString(),
         },
       ];
       if (printedCount < total) {
         const nextAmount = bifurcateSession.amounts[printedCount] || '';
+        const nextChequeNo = bifurcateSession.chequeNos[printedCount] || '';
         setBifurcateSession({
           ...bifurcateSession,
           printedCount,
           printedRecords: nextRecords,
           currentIndex: printedCount,
         });
-        setData(d => ({ ...d, amountInNumbers: nextAmount, amountInWords: numberToWords(nextAmount), chequeNo: '' }));
+        setData(d => ({ ...d, amountInNumbers: nextAmount, amountInWords: numberToWords(nextAmount), chequeNo: nextChequeNo }));
         setSystemToast(`Printed ${printedCount}/${total}. Next split loaded.`);
         setTimeout(() => setSystemToast(null), 2200);
       } else {
@@ -1165,7 +1259,7 @@ export default function App() {
           printedRecords: nextRecords,
           currentIndex: total - 1,
         });
-        setSystemToast('All splits printed. Click Save to enter cheque numbers and save all.');
+        setSystemToast('All splits printed. Click Save or WhatsApp to save and send.');
         setTimeout(() => setSystemToast(null), 2600);
       }
     }
@@ -1174,6 +1268,14 @@ export default function App() {
   const exportPdfAndShare = async () => {
     if (!data.payTo || !data.amountInNumbers) {
       setPrintingToast('Please fill Payee and Amount before exporting.');
+      setTimeout(() => setPrintingToast(null), 2500);
+      return;
+    }
+    const requiredChequeNo = bifurcateSession
+      ? (bifurcateSession.chequeNos[bifurcateSession.currentIndex] || '').trim()
+      : (data.chequeNo || '').trim();
+    if (!requiredChequeNo) {
+      setPrintingToast('Please enter cheque number before exporting.');
       setTimeout(() => setPrintingToast(null), 2500);
       return;
     }
@@ -1363,22 +1465,27 @@ export default function App() {
       return true;
     }
 
-    const enteredNos: string[] = [];
+    const enteredNos = [...bifurcateSession.chequeNos];
     for (let i = 0; i < bifurcateSession.amounts.length; i++) {
-      const promptDate = records[i]?.date || bifurcateSession.date || '';
-      const dateText = formatPreviewDate(promptDate);
-      const entered = window.prompt(
-        `Enter cheque number for split ${i + 1}/${bifurcateSession.amounts.length} on ${dateText} (₹${bifurcateSession.amounts[i]}/-):`
-      );
-      if (!entered || !entered.trim()) {
-        alert('Save cancelled. All cheque numbers are required.');
-        return true;
+      const existing = (enteredNos[i] || records[i]?.chequeNo || '').trim();
+      if (existing) {
+        enteredNos[i] = existing;
+      } else {
+        const promptDate = records[i]?.date || bifurcateSession.date || '';
+        const dateText = formatPreviewDate(promptDate);
+        const entered = window.prompt(
+          `Enter cheque number for split ${i + 1}/${bifurcateSession.amounts.length} on ${dateText} (₹${bifurcateSession.amounts[i]}/-):`
+        );
+        if (!entered || !entered.trim()) {
+          alert('Save cancelled. All cheque numbers are required.');
+          return true;
+        }
+        enteredNos[i] = entered.trim();
       }
-      enteredNos.push(entered.trim());
     }
 
-    // Reserve a window during the user gesture so browsers don't block WA after async saves.
-    const waWindow = window.open('about:blank', WA_WINDOW_NAME);
+    // Reserve/reuse one WhatsApp tab during the user gesture so browsers don't block navigation after async saves.
+    const waWindow = reserveWhatsAppWindow();
 
     for (let i = 0; i < records.length; i++) {
       const rec = records[i];
@@ -1388,11 +1495,10 @@ export default function App() {
         date: rec.date || bifurcateSession.date || '',
         amountInNumbers: rec.amountInNumbers || bifurcateSession.amounts[i] || '',
         amountInWords: rec.amountInWords || numberToWords(rec.amountInNumbers || bifurcateSession.amounts[i] || ''),
-        chequeNo: enteredNos[i] || '',
+        chequeNo: enteredNos[i] || rec.chequeNo || '',
         issuedAt: rec.issuedAt || new Date().toISOString(),
       }, { openHistory: i === records.length - 1 });
       if (result.duplicate) {
-        try { waWindow?.close(); } catch { /* no-op */ }
         return true;
       }
     }
@@ -1423,8 +1529,12 @@ export default function App() {
       if (await finalizeBifurcationSaveAndSend()) return;
 
       if (!lastPrinted) { alert('No printed cheque to save. Please print first.'); return; }
-      const chequeNo = window.prompt('Enter printed Cheque Number (required to save):');
-      if (!chequeNo) { alert('Cheque not saved.'); return; }
+      let chequeNo = (lastPrinted.chequeNo || '').trim();
+      if (!chequeNo) {
+        const entered = window.prompt('Enter printed Cheque Number (required to save):');
+        if (!entered || !entered.trim()) { alert('Cheque not saved.'); return; }
+        chequeNo = entered.trim();
+      }
       const record = {
         payTo: lastPrinted.payTo || '',
         payToLower: normalizePayee(lastPrinted.payTo || ''),
@@ -1439,10 +1549,9 @@ export default function App() {
       const year = record.date?.slice(4) || '';
       const amt = record.amountInNumbers ? `${record.amountInNumbers}/-` : '';
       const message = `${record.payTo || ''} ${amt} on ${day}/${month}/${year} : ${record.chequeNo || chequeNo}`.trim();
-      const waWindow = window.open('about:blank', WA_WINDOW_NAME);
+      const waWindow = reserveWhatsAppWindow();
       const saveResult = await persistChequeRecord(record, { openHistory: true });
       if (saveResult.duplicate) {
-        try { waWindow?.close(); } catch { /* no-op */ }
         return;
       }
       const waOpened = openWhatsApp(message, waWindow);
@@ -1650,12 +1759,14 @@ export default function App() {
                         setTimeout(() => setSaveError(null), 3000);
                         return;
                       }
+                      const chequeNos = promptBifurcationChequeNumbers(amounts, bifurcateSession?.chequeNos || []);
+                      if (!chequeNos) return;
                       const sessionDate = data.date || new Date().toLocaleDateString('en-GB').replace(/\//g, '');
                       dateManuallyEditedRef.current = true;
                       pendingAutoDatePayeeRef.current = null;
                       setBifurcateSession({
                         amounts,
-                        chequeNos: Array.from({ length: amounts.length }, () => ''),
+                        chequeNos,
                         currentIndex: 0,
                         printedCount: 0,
                         printedRecords: [],
@@ -1663,21 +1774,63 @@ export default function App() {
                         date: sessionDate,
                       });
                       const firstAmount = amounts[0] || '';
-                      setData(d => ({ ...d, date: sessionDate, amountInNumbers: firstAmount, amountInWords: numberToWords(firstAmount), chequeNo: '' }));
+                      setData(d => ({ ...d, date: sessionDate, amountInNumbers: firstAmount, amountInWords: numberToWords(firstAmount), chequeNo: chequeNos[0] || '' }));
                     }}
                   >
                     Start
                   </button>
                 </div>
                 {bifurcateSession && (
-                  <div style={{marginTop:8, fontSize:'0.9em', color:'#334155'}}>
-                    Printed {bifurcateSession.printedCount} of {bifurcateSession.amounts.length}.
-                    {' '}Current split amount: ₹{bifurcateSession.amounts[bifurcateSession.currentIndex] || '0'} /-
+                  <div style={{marginTop:10}}>
+                    <div style={{fontSize:'0.9em', color:'#334155', marginBottom:8}}>
+                      Printed {bifurcateSession.printedCount} of {bifurcateSession.amounts.length}.
+                      {' '}Current split amount: ₹{bifurcateSession.amounts[bifurcateSession.currentIndex] || '0'} /-
+                    </div>
+                    {bifurcateSession.printedCount > 0 && (
+                      <button
+                        className="history-btn ghost"
+                        type="button"
+                        onClick={reprintLastBifurcationSplit}
+                        style={{marginBottom:8}}
+                      >
+                        Reprint last split
+                      </button>
+                    )}
+                    <div className="split-cheque-grid">
+                      {bifurcateSession.amounts.map((amount, index) => (
+                        <label key={`${amount}-${index}`} className="split-cheque-field">
+                          <span>Split {index + 1} · ₹{amount}/-</span>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="\d*"
+                            value={bifurcateSession.chequeNos[index] || ''}
+                            onChange={e => updateBifurcationChequeNo(index, e.target.value)}
+                            placeholder="Cheque no"
+                          />
+                        </label>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
             )}
           </div>
+
+          {!bifurcateSession && (
+            <div className="input-wrapper">
+              <label className="input-label">Cheque Number</label>
+              <input
+                className="input-box"
+                type="text"
+                inputMode="numeric"
+                pattern="\d*"
+                placeholder="Enter before printing"
+                value={data.chequeNo}
+                onChange={e => setData(d => ({ ...d, chequeNo: (e.target.value || '').replace(/\D/g, '') }))}
+              />
+            </div>
+          )}
 
           <div className="input-wrapper">
             <label className="input-label">Amount (₹)</label>
@@ -1733,6 +1886,11 @@ export default function App() {
             <span className="checkbox-text">Print Payee Name on Cheque?</span>
           </div>
 
+          <div className="checkbox-wrapper" onClick={() => setData(d => ({ ...d, crossCheque: !d.crossCheque }))}>
+            <input type="checkbox" id="toggleCrossCheque" checked={!!data.crossCheque} onChange={e => setData(d => ({ ...d, crossCheque: e.target.checked }))} />
+            <span className="checkbox-text">Cross Cheque?</span>
+          </div>
+
           <div className="input-wrapper">
             <label className="input-label">Print Font</label>
             <select
@@ -1762,6 +1920,12 @@ export default function App() {
 
         <div className="card preview-card">
           <span className="card-header" style={{marginBottom:10, color:'var(--primary)'}}>Live Preview</span>
+          {data.crossCheque && (
+            <div className="preview-cross-cheque" aria-hidden="true">
+              <span></span>
+              <span></span>
+            </div>
+          )}
 
           <div className="preview-row">
             <div>
@@ -1841,8 +2005,7 @@ export default function App() {
           const fallbackDate = lastSavedRecord?.date || '';
           const source = lastPrinted || data;
 
-          // If there is a freshly printed cheque pending save, always ask a fresh cheque number.
-          let chq = (lastPrinted ? '' : (data.chequeNo || '')).trim();
+          let chq = ((lastPrinted?.chequeNo || data.chequeNo || '')).trim();
           if (!chq) {
             const entered = window.prompt('Enter cheque number to include in WhatsApp:');
             if (!entered || !entered.trim()) return;
@@ -1861,14 +2024,7 @@ export default function App() {
 
           const message = `${payTo} ${amountNum}/- on ${dateText} : ${chq}`.trim();
           console.log('WA button message:', message, { source, payTo, amountNum, dateText, chq });
-          const waOpened = openWhatsApp(message);
-          if (!waOpened) {
-            setPendingWhatsAppMessage(message);
-            setSaveError('WhatsApp did not open. Tap WhatsApp again to resend.');
-            setTimeout(() => setSaveError(null), 3200);
-          } else {
-            setPendingWhatsAppMessage(null);
-          }
+          const waWindow = reserveWhatsAppWindow();
 
           // Save automatically for this WhatsApp action so history always gets the entered cheque number.
           const record = {
@@ -1881,9 +2037,21 @@ export default function App() {
             issuedAt: (lastPrinted && lastPrintedAt) ? lastPrintedAt : new Date().toISOString(),
           };
           try {
-            await persistChequeRecord(record);
+            const saveResult = await persistChequeRecord(record);
+            if (saveResult.duplicate) {
+              return;
+            }
           } catch (e) {
             console.warn('auto-save from WhatsApp failed', e);
+          }
+
+          const waOpened = openWhatsApp(message, waWindow);
+          if (!waOpened) {
+            setPendingWhatsAppMessage(message);
+            setSaveError('Cheque saved, but WhatsApp did not open. Tap WhatsApp again to resend.');
+            setTimeout(() => setSaveError(null), 3200);
+          } else {
+            setPendingWhatsAppMessage(null);
           }
 
           if (lastPrinted) {
@@ -2056,6 +2224,12 @@ export default function App() {
       </div>
 
       <div className={`cheque-print-container ${exporting ? 'export' : ''}`} style={printStyleVars}>
+        {data.crossCheque && (
+          <div className="print-cross-cheque" aria-hidden="true">
+            <span></span>
+            <span></span>
+          </div>
+        )}
         <div className="print-date-field">{data.date}</div>
         <div className="print-pay-field">{!data.hidePayee ? data.payTo : ''}</div>
         <div className="print-amount-words">{data.amountInWords}</div>
