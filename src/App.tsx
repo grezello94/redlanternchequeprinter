@@ -1086,7 +1086,7 @@ export default function App() {
     const amountWords = escapeHtml(snapshot.amountInWords || '');
     const amountNum = escapeHtml(formatAmountForPrint(snapshot.amountInNumbers || ''));
     const crossingMarkup = snapshot.crossCheque
-      ? '<div class="print-cross-cheque"><span></span><span></span></div>'
+      ? '<div class="print-cross-cheque"><span></span><strong>A/C Payee Only</strong><span></span></div>'
       : '';
     const snapshotFont = (snapshot.printFont || DEFAULT_PRINT_FONT) as PrintFontKey;
     const snapshotInk = (snapshot.inkColor || DEFAULT_INK_COLOR) as InkColorKey;
@@ -1105,15 +1105,21 @@ export default function App() {
       html, body { margin: 0; padding: 0; width: 20.4cm; height: 9.5cm; overflow: hidden; background: transparent; }
       .cheque-print-container { position: relative; width: 20.4cm; height: 9.5cm; background: transparent; }
       .print-cross-cheque {
-        position: absolute; top: 0.38cm; left: 0.42cm; width: 5cm; height: 1.1cm;
+        position: absolute; top: 0.38cm; left: 0.42cm; width: 6.4cm; height: 1.1cm;
         transform: rotate(-18deg); transform-origin: left top;
       }
       .print-cross-cheque span {
-        position: absolute; left: -0.42cm; width: 5.42cm; height: 0;
+        position: absolute; left: -0.72cm; width: 7.12cm; height: 0;
         border-top: 0.035cm solid ${popupInkColor};
       }
       .print-cross-cheque span:first-child { top: 0.24cm; }
       .print-cross-cheque span:last-child { top: 0.58cm; }
+      .print-cross-cheque strong {
+        position: absolute; left: -0.12cm; top: 0.32cm; width: 4.8cm;
+        color: ${popupInkColor}; font-family: ${popupFontFamily};
+        font-size: 0.20cm; font-weight: 700; letter-spacing: 0.02cm;
+        line-height: 1; text-align: center; text-transform: uppercase;
+      }
       .print-date-field {
         position: absolute; top: 1cm; left: 15.9cm; width: 4.4cm;
         font-size: 0.50cm; font-weight: bold; font-family: ${popupFontFamily};
@@ -1923,6 +1929,7 @@ export default function App() {
           {data.crossCheque && (
             <div className="preview-cross-cheque" aria-hidden="true">
               <span></span>
+              <strong>A/C Payee Only</strong>
               <span></span>
             </div>
           )}
@@ -2227,6 +2234,7 @@ export default function App() {
         {data.crossCheque && (
           <div className="print-cross-cheque" aria-hidden="true">
             <span></span>
+            <strong>A/C Payee Only</strong>
             <span></span>
           </div>
         )}
