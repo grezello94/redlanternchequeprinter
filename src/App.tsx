@@ -1086,7 +1086,7 @@ export default function App() {
     const amountWords = escapeHtml(snapshot.amountInWords || '');
     const amountNum = escapeHtml(formatAmountForPrint(snapshot.amountInNumbers || ''));
     const crossingMarkup = snapshot.crossCheque
-      ? '<div class="print-cross-cheque"><span></span><strong>A/C Payee Only</strong><span></span></div>'
+      ? '<div class="print-cross-cheque"><span></span><span></span></div>'
       : '';
     const snapshotFont = (snapshot.printFont || DEFAULT_PRINT_FONT) as PrintFontKey;
     const snapshotInk = (snapshot.inkColor || DEFAULT_INK_COLOR) as InkColorKey;
@@ -1115,13 +1115,6 @@ export default function App() {
       }
       .print-cross-cheque span:first-child { top: 0.18cm; }
       .print-cross-cheque span:last-child { top: 0.82cm; }
-      .print-cross-cheque strong {
-        position: absolute; left: -0.42cm; top: 0.39cm; width: 5.9cm;
-        color: ${popupInkColor}; font-family: ${popupFontFamily};
-        font-size: 0.32cm; font-weight: 800; letter-spacing: 0.02cm;
-        line-height: 1; text-align: center; text-transform: uppercase;
-        z-index: 2;
-      }
       .print-date-field {
         position: absolute; top: 1cm; left: 15.9cm; width: 4.4cm;
         font-size: 0.50cm; font-weight: bold; font-family: ${popupFontFamily};
@@ -1931,7 +1924,6 @@ export default function App() {
           {data.crossCheque && (
             <div className="preview-cross-cheque" aria-hidden="true">
               <span></span>
-              <strong>A/C Payee Only</strong>
               <span></span>
             </div>
           )}
@@ -2236,7 +2228,6 @@ export default function App() {
         {data.crossCheque && (
           <div className="print-cross-cheque" aria-hidden="true">
             <span></span>
-            <strong>A/C Payee Only</strong>
             <span></span>
           </div>
         )}

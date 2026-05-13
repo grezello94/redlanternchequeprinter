@@ -363,19 +363,6 @@ header {
 }
 .preview-cross-cheque span:first-child { top: 6px; }
 .preview-cross-cheque span:last-child { top: 28px; }
-.preview-cross-cheque strong {
-    position: absolute;
-    top: 13px;
-    left: -18px;
-    width: 168px;
-    color: var(--primary);
-    font-size: 0.62rem;
-    font-weight: 800;
-    line-height: 1;
-    text-align: center;
-    text-transform: uppercase;
-    z-index: 2;
-}
 .preview-card:hover {
     transform: translateY(-2px);
     box-shadow: 0 12px 24px -4px rgba(0, 0, 0, 0.06), 0 6px 12px -4px rgba(0, 0, 0, 0.03);
@@ -594,14 +581,6 @@ header {
 }
 .print-cross-cheque span:first-child { top: 0.18cm; }
 .print-cross-cheque span:last-child { top: 0.82cm; }
-.print-cross-cheque strong {
-    position: absolute; left: -0.42cm; top: 0.39cm; width: 5.9cm;
-    color: var(--print-ink-color, #1d4ed8);
-    font-family: var(--print-font-family, 'Times New Roman', serif);
-    font-size: 0.32cm; font-weight: 800; letter-spacing: 0.02cm;
-    line-height: 1; text-align: center; text-transform: uppercase;
-    z-index: 2;
-}
 @media print {
     .container, header, .bottom-dock, .history-drawer, .history-overlay { display: none !important; }
     body { background: none; } body * { visibility: hidden; }
