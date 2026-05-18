@@ -39,6 +39,7 @@ type PrintFontKey = keyof typeof FONT_OPTIONS;
 type InkColorKey = keyof typeof INK_COLOR_OPTIONS;
 const DEFAULT_PRINT_FONT: PrintFontKey = 'courier';
 const DEFAULT_INK_COLOR: InkColorKey = 'darkBlue';
+type HistoryRecord = { key: string; chequeNo?: string; amount?: string; date?: string; payTo?: string; issuedDay?: string; issuedAt?: string };
 
 export default function App() {
   const [data, setData] = useState<ChequeData>({
@@ -67,7 +68,7 @@ export default function App() {
   const [lastPrinted, setLastPrinted] = useState<ChequeData | null>(null);
   const [lastPrintedAt, setLastPrintedAt] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyRecords, setHistoryRecords] = useState<Array<{ key: string; chequeNo?: string; amount?: string; date?: string; payTo?: string; issuedDay?: string; issuedAt?: string }>>([]);
+  const [historyRecords, setHistoryRecords] = useState<HistoryRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyLoadedAll, setHistoryLoadedAll] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -78,6 +79,7 @@ export default function App() {
   const [historyToInput, setHistoryToInput] = useState('');
   const [historyFrom, setHistoryFrom] = useState('');
   const [historyTo, setHistoryTo] = useState('');
+  const [selectedHistoryKeys, setSelectedHistoryKeys] = useState<Set<string>>(() => new Set());
   const [lastSavedRecord, setLastSavedRecord] = useState<{ payTo: string; amountInNumbers: string; date: string; chequeNo: string } | null>(null);
   const [pendingWhatsAppMessage, setPendingWhatsAppMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -1052,6 +1054,10 @@ export default function App() {
       try { opened.focus(); } catch { /* no-op */ }
       return true;
     }
+    try {
+      window.location.href = url;
+      return true;
+    } catch { /* no-op */ }
     return false;
   };
 
@@ -1583,6 +1589,92 @@ export default function App() {
     }
     return true;
   });
+
+  const selectedHistoryRecords = filteredHistory.filter(r => selectedHistoryKeys.has(r.key));
+  const allVisibleSelected = filteredHistory.length > 0 && filteredHistory.every(r => selectedHistoryKeys.has(r.key));
+
+  const toggleHistorySelection = (key: string) => {
+    setSelectedHistoryKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const setAllVisibleHistorySelected = (selected: boolean) => {
+    setSelectedHistoryKeys(prev => {
+      const next = new Set(prev);
+      filteredHistory.forEach(r => {
+        if (selected) next.add(r.key);
+        else next.delete(r.key);
+      });
+      return next;
+    });
+  };
+
+  const buildHistoryWhatsAppMessage = (records: HistoryRecord[]) => {
+    const groups: Array<{ payTo: string; records: HistoryRecord[] }> = [];
+    const groupByName = new Map<string, { payTo: string; records: HistoryRecord[] }>();
+    const dateSortValue = (storedDate?: string) => {
+      const value = (storedDate || '').trim();
+      if (value.length !== 8) return '';
+      return `${value.slice(4)}${value.slice(2, 4)}${value.slice(0, 2)}`;
+    };
+
+    records.forEach(record => {
+      const payTo = (record.payTo || 'Unknown Supplier').trim();
+      const groupKey = normalizePayee(payTo) || payTo;
+      let group = groupByName.get(groupKey);
+      if (!group) {
+        group = { payTo, records: [] };
+        groupByName.set(groupKey, group);
+        groups.push(group);
+      }
+      group.records.push(record);
+    });
+
+    return groups.map(group => {
+      const sortedRecords = [...group.records].sort((a, b) => {
+        const dateCompare = dateSortValue(a.date).localeCompare(dateSortValue(b.date));
+        if (dateCompare !== 0) return dateCompare;
+        return (a.chequeNo || '').localeCompare(b.chequeNo || '', undefined, { numeric: true });
+      });
+      const lines = sortedRecords.map((record, index) => {
+        const amount = (record.amount || '').toString().replace(/[^\d.]/g, '').trim();
+        const dateText = record.date ? formatPreviewDate(record.date) : '--/--/----';
+        const chequeNo = (record.chequeNo || '').trim();
+        return `${index + 1}) ${amount}/- on ${dateText} : ${chequeNo}`.trim();
+      });
+      return [group.payTo, ...lines].join('\n');
+    }).join('\n');
+  };
+
+  const copySelectedHistoryMessage = async () => {
+    const message = buildHistoryWhatsAppMessage(selectedHistoryRecords);
+    if (!message) return;
+    try {
+      await navigator.clipboard.writeText(message);
+      setSaveSuccess('Selected cheques copied');
+      setTimeout(() => setSaveSuccess(null), 1800);
+    } catch {
+      window.prompt('Copy selected cheques:', message);
+    }
+  };
+
+  const sendSelectedHistoryToWhatsApp = () => {
+    const message = buildHistoryWhatsAppMessage(selectedHistoryRecords);
+    if (!message) return;
+    const waWindow = reserveWhatsAppWindow();
+    const waOpened = openWhatsApp(message, waWindow);
+    if (!waOpened) {
+      setPendingWhatsAppMessage(message);
+      setSaveError('WhatsApp did not open. Tap WhatsApp again to resend.');
+      setTimeout(() => setSaveError(null), 3200);
+    } else {
+      setPendingWhatsAppMessage(null);
+    }
+  };
 
   return (
     <div>
@@ -2127,7 +2219,47 @@ export default function App() {
           </div>
         </div>
         <div className="history-meta">
-          Showing {filteredHistory.length} of {historyRecords.length} loaded
+          <span>Showing {filteredHistory.length} of {historyRecords.length} loaded</span>
+          <span>{selectedHistoryRecords.length} selected</span>
+        </div>
+        <div className="history-selection-bar">
+          <button
+            className="history-btn ghost"
+            type="button"
+            onClick={() => setAllVisibleHistorySelected(!allVisibleSelected)}
+            disabled={filteredHistory.length === 0}
+          >
+            {allVisibleSelected ? 'Unselect all' : 'Select all'}
+          </button>
+          <button
+            className="history-btn ghost"
+            type="button"
+            onClick={() => setSelectedHistoryKeys(new Set())}
+            disabled={selectedHistoryRecords.length === 0}
+          >
+            Clear
+          </button>
+          <button
+            className="history-btn ghost"
+            type="button"
+            onClick={copySelectedHistoryMessage}
+            disabled={selectedHistoryRecords.length === 0}
+          >
+            Copy
+          </button>
+          <button
+            className="history-btn whatsapp"
+            type="button"
+            onClick={sendSelectedHistoryToWhatsApp}
+            disabled={selectedHistoryRecords.length === 0}
+            aria-label="Send selected history to WhatsApp"
+            title="Send selected to WhatsApp"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.008-.57-.008-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+            </svg>
+            WhatsApp
+          </button>
         </div>
         <div className="history-list">
           {historyError ? (
@@ -2140,20 +2272,32 @@ export default function App() {
             filteredHistory.map(r => {
               const issued = r.issuedDay || storedDateToDay(r.date || '');
               const dateText = r.date ? formatPreviewDate(r.date) : '--/--/----';
+              const selected = selectedHistoryKeys.has(r.key);
               return (
-                <div key={r.key} className="history-item">
-                  <div>
-                    <div className="h-name">{r.payTo || '—'}</div>
-                    <div className="h-date">
-                      Cheque: {dateText}{issued ? ` • ${issued}` : ''}
+                <div key={r.key} className={`history-item ${selected ? 'selected' : ''}`}>
+                  <label className="history-select">
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => toggleHistorySelection(r.key)}
+                      aria-label={`Select ${r.payTo || 'cheque'} ${r.chequeNo || ''}`}
+                    />
+                    <span></span>
+                  </label>
+                  <div className="history-item-main">
+                    <div>
+                      <div className="h-name">{r.payTo || '—'}</div>
+                      <div className="h-date">
+                        Cheque: {dateText}{issued ? ` • ${issued}` : ''}
+                      </div>
+                      {r.issuedAt && (
+                        <div className="h-date">Issued: {isoToDisplay(r.issuedAt)}</div>
+                      )}
                     </div>
-                    {r.issuedAt && (
-                      <div className="h-date">Issued: {isoToDisplay(r.issuedAt)}</div>
-                    )}
-                  </div>
-                  <div style={{textAlign:'right'}}>
-                    <div className="h-price">₹{r.amount || ''}</div>
-                    <div style={{fontSize:'0.85rem', color: 'var(--text-muted)'}}>Chq: {r.chequeNo || '--'}</div>
+                    <div style={{textAlign:'right'}}>
+                      <div className="h-price">₹{r.amount || ''}</div>
+                      <div style={{fontSize:'0.85rem', color: 'var(--text-muted)'}}>Chq: {r.chequeNo || '--'}</div>
+                    </div>
                   </div>
                 </div>
               );
