@@ -35,7 +35,7 @@
     font-size: 0.50cm;
     font-weight: bold;
     font-family: 'Courier New', monospace;
-    color: #000;
+    color: var(--print-ink-color, #000080);
     letter-spacing: 0.18cm;
     width: 4.4cm;
     text-align: left;
@@ -52,7 +52,7 @@
     font-size: 0.38cm;
     font-weight: 600;
     font-family: 'Times New Roman', serif;
-    color: #000;
+    color: var(--print-ink-color, #000080);
     width: 13cm;
     line-height: 1.1;
     text-transform: uppercase;
@@ -72,7 +72,7 @@
     font-size: 0.38cm;
     font-weight: 600;
     font-family: 'Times New Roman', serif;
-    color: #000;
+    color: var(--print-ink-color, #000080);
     max-width: 16cm; /* Maximum width - wraps if longer */
     line-height: 1.3;
     text-transform: uppercase;
@@ -92,7 +92,7 @@
     font-size: 0.59cm;
     font-weight: bold;
     font-family: 'Courier New', monospace;
-    color: #000;
+    color: var(--print-ink-color, #000080);
     text-align: left;
     width: 3.8cm;
     line-height: 1.1;
