@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { db, repairIndexedDbPersistence } from './firebase';
@@ -96,6 +96,13 @@ export default function App() {
   const [showPrintSetup, setShowPrintSetup] = useState(false);
   const [systemToast, setSystemToast] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [datePickerMonth, setDatePickerMonth] = useState(() => {
+    const d = new Date();
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
   const [bifurcateEnabled, setBifurcateEnabled] = useState(false);
   const [bifurcateCount, setBifurcateCount] = useState(2);
   const [bifurcateTotal, setBifurcateTotal] = useState('');
@@ -637,6 +644,12 @@ export default function App() {
   }, [historyOpen, historyRecords.length, historyError]);
 
   useEffect(() => {
+    if (!historyRecords.length && !historyLoading) {
+      loadHistoryPage({ reset: true });
+    }
+  }, []);
+
+  useEffect(() => {
     const onRepaired = () => {
       setSystemToast('Local cache repaired, retrying...');
       setTimeout(() => setSystemToast(null), 2500);
@@ -889,25 +902,65 @@ export default function App() {
     return parts.join(' ') + ' Rupees Only';
   };
 
-  const dateToInput = (d: string) => {
-    if (!d) return '';
-    const s = d.includes('/') ? d.replace(/\//g, '') : d;
-    if (s.length !== 8) return '';
-    const dd = s.slice(0,2); const mm = s.slice(2,4); const yyyy = s.slice(4);
-    return `${yyyy}-${mm}-${dd}`;
-  };
-
-  const inputToStored = (val: string) => {
-    if (!val) return '';
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) return val.replace(/\//g, '');
-    const yyyy = val.slice(0,4); const mm = val.slice(5,7); const dd = val.slice(8);
-    return `${dd}${mm}${yyyy}`;
-  };
-
   const formatPreviewDate = (stored: string) => {
     if (!stored || stored.length !== 8) return '--/--/----';
     const dd = stored.slice(0,2); const mm = stored.slice(2,4); const yyyy = stored.slice(4);
     return `${dd}/${mm}/${yyyy}`;
+  };
+
+  const storedToDate = (stored: string) => {
+    if (!stored || stored.length !== 8) return null;
+    const dd = parseInt(stored.slice(0, 2), 10);
+    const mm = parseInt(stored.slice(2, 4), 10);
+    const yyyy = parseInt(stored.slice(4), 10);
+    if (!dd || !mm || !yyyy) return null;
+    const d = new Date(yyyy, mm - 1, dd);
+    if (d.getFullYear() !== yyyy || d.getMonth() !== mm - 1 || d.getDate() !== dd) return null;
+    d.setHours(0, 0, 0, 0);
+    return d;
+  };
+
+  const dateToStoredValue = (d: Date) =>
+    `${String(d.getDate()).padStart(2, '0')}${String(d.getMonth() + 1).padStart(2, '0')}${d.getFullYear()}`;
+
+  const calendarDays = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const selected = storedToDate(data.date);
+    const monthStart = new Date(datePickerMonth.getFullYear(), datePickerMonth.getMonth(), 1);
+    const gridStart = new Date(monthStart);
+    gridStart.setDate(monthStart.getDate() - monthStart.getDay());
+
+    return Array.from({ length: 42 }, (_, index) => {
+      const d = new Date(gridStart);
+      d.setDate(gridStart.getDate() + index);
+      d.setHours(0, 0, 0, 0);
+      return {
+        date: d,
+        label: String(d.getDate()),
+        inMonth: d.getMonth() === datePickerMonth.getMonth(),
+        isToday: d.getTime() === today.getTime(),
+        isSelected: !!selected && d.getTime() === selected.getTime(),
+      };
+    });
+  }, [data.date, datePickerMonth]);
+
+  const openDatePicker = () => {
+    const selected = storedToDate(data.date) || new Date();
+    const month = new Date(selected.getFullYear(), selected.getMonth(), 1);
+    month.setHours(0, 0, 0, 0);
+    setDatePickerMonth(month);
+    setDatePickerOpen(true);
+  };
+
+  const moveDatePickerMonth = (delta: number) => {
+    setDatePickerMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + delta, 1));
+  };
+
+  const chooseDate = (date: Date) => {
+    dateManuallyEditedRef.current = true;
+    setData(d => ({ ...d, date: dateToStoredValue(date) }));
+    setDatePickerOpen(false);
   };
 
   const formatAmountForPrint = (amount: string) => {
@@ -915,6 +968,68 @@ export default function App() {
     if (!cleaned) return '';
     const parts = cleaned.split('.'); parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     return parts.join('.') + '/-';
+  };
+
+  const duePaymentSections = useMemo(() => {
+    const parseStoredDate = (stored?: string) => {
+      const value = (stored || '').trim();
+      if (value.length !== 8) return null;
+      const dd = parseInt(value.slice(0, 2), 10);
+      const mm = parseInt(value.slice(2, 4), 10);
+      const yyyy = parseInt(value.slice(4), 10);
+      if (!dd || !mm || !yyyy) return null;
+      const parsed = new Date(yyyy, mm - 1, dd);
+      if (parsed.getFullYear() !== yyyy || parsed.getMonth() !== mm - 1 || parsed.getDate() !== dd) return null;
+      parsed.setHours(0, 0, 0, 0);
+      return parsed;
+    };
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const rangeStart = new Date(today);
+    const weekEnd = new Date(today);
+    const daysUntilSunday = (7 - today.getDay()) % 7;
+    weekEnd.setDate(today.getDate() + daysUntilSunday);
+
+    const payments = historyRecords
+      .map(record => {
+        const dueDate = parseStoredDate(record.date);
+        return dueDate ? { ...record, dueDate, dueTime: dueDate.getTime() } : null;
+      })
+      .filter((record): record is HistoryRecord & { dueDate: Date; dueTime: number } => !!record)
+      .sort((a, b) => {
+        const dateCompare = a.dueTime - b.dueTime;
+        if (dateCompare !== 0) return dateCompare;
+        return (a.chequeNo || '').localeCompare(b.chequeNo || '', undefined, { numeric: true });
+      });
+
+    return {
+      thisWeek: payments.filter(record => record.dueDate >= rangeStart && record.dueDate <= weekEnd),
+      upcoming: payments.filter(record => record.dueDate > weekEnd).slice(0, 8),
+      weekRange: `${formatPreviewDate(`${String(rangeStart.getDate()).padStart(2, '0')}${String(rangeStart.getMonth() + 1).padStart(2, '0')}${rangeStart.getFullYear()}`)} - ${formatPreviewDate(`${String(weekEnd.getDate()).padStart(2, '0')}${String(weekEnd.getMonth() + 1).padStart(2, '0')}${weekEnd.getFullYear()}`)}`,
+    };
+  }, [historyRecords]);
+
+  const renderDuePaymentList = (records: Array<HistoryRecord & { dueDate: Date; dueTime: number }>, emptyText: string) => {
+    if (!records.length) {
+      return <div className="due-empty">{emptyText}</div>;
+    }
+    return (
+      <div className="due-list">
+        {records.map(record => (
+          <div className="due-item" key={`${record.key}-${record.dueTime}`}>
+            <div className="due-main">
+              <div className="due-payee">{record.payTo || 'Unknown Payee'}</div>
+              <div className="due-meta">
+                <span>{formatPreviewDate(record.date || '')}</span>
+                <span>Chq {record.chequeNo || '--'}</span>
+              </div>
+            </div>
+            <div className="due-amount">₹{formatAmountForPrint(record.amount || '').replace('/-', '')}</div>
+          </div>
+        ))}
+      </div>
+    );
   };
 
   const selectedPrintFont = (data.printFont || DEFAULT_PRINT_FONT) as PrintFontKey;
@@ -2189,18 +2304,55 @@ export default function App() {
             />
           </div>
 
-          <div className="input-wrapper">
+          <div
+            className="input-wrapper"
+            onBlur={e => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                setDatePickerOpen(false);
+              }
+            }}
+          >
             <label className="input-label">Date</label>
             <input
               className="input-box"
-              type="date"
+              type="text"
               id="inputDate"
-              value={dateToInput(data.date)}
-              onChange={e => {
-                dateManuallyEditedRef.current = true;
-                setData(d => ({ ...d, date: inputToStored(e.target.value) }));
-              }}
+              readOnly
+              value={formatPreviewDate(data.date)}
+              onFocus={openDatePicker}
+              onClick={openDatePicker}
             />
+            {datePickerOpen && (
+              <div className="date-picker-popover">
+                <div className="date-picker-header">
+                  <button type="button" onClick={() => moveDatePickerMonth(-1)} aria-label="Previous month">‹</button>
+                  <span>{datePickerMonth.toLocaleString('en-US', { month: 'short', year: 'numeric' })}</span>
+                  <button type="button" onClick={() => moveDatePickerMonth(1)} aria-label="Next month">›</button>
+                </div>
+                <div className="date-picker-weekdays">
+                  {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
+                    <span key={day}>{day}</span>
+                  ))}
+                </div>
+                <div className="date-picker-grid">
+                  {calendarDays.map(day => (
+                    <button
+                      key={dateToStoredValue(day.date)}
+                      type="button"
+                      className={[
+                        'date-picker-day',
+                        !day.inMonth ? 'muted' : '',
+                        day.isToday ? 'today' : '',
+                        day.isSelected ? 'selected' : '',
+                      ].filter(Boolean).join(' ')}
+                      onClick={() => chooseDate(day.date)}
+                    >
+                      {day.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="checkbox-wrapper" onClick={() => setData(d => ({ ...d, hidePayee: !d.hidePayee }))}>
@@ -2240,34 +2392,51 @@ export default function App() {
           </div>
         </div>
 
-        <div className="card preview-card">
-          <span className="card-header" style={{marginBottom:10, color:'var(--primary)'}}>Live Preview</span>
-          {data.crossCheque && (
-            <div className="preview-cross-cheque" aria-hidden="true">
-              <span></span>
-              <span></span>
-            </div>
-          )}
+        <div className="preview-column">
+          <div className="card preview-card">
+            <span className="card-header" style={{marginBottom:10, color:'var(--primary)'}}>Live Preview</span>
+            {data.crossCheque && (
+              <div className="preview-cross-cheque" aria-hidden="true">
+                <span></span>
+                <span></span>
+              </div>
+            )}
 
-          <div className="preview-row">
+            <div className="preview-row">
+              <div>
+                <div className="p-label">Date</div>
+                <div className="p-value" id="prevDate" style={livePreviewTextStyle}>{formatPreviewDate(data.date)}</div>
+              </div>
+              <div style={{textAlign:'right'}}>
+                <div className="p-label">Amount</div>
+                <div className="p-value-lg" id="prevAmountNum" style={livePreviewTextStyle}>₹ {data.amountInNumbers ? Number(data.amountInNumbers).toLocaleString('en-IN') + '/-' : '0/-'}</div>
+              </div>
+            </div>
+
+            <div style={{marginBottom:12}}>
+              <div className="p-label">Pay To</div>
+              <div className="p-value" id="prevPayee" style={{...livePreviewTextStyle, fontSize:'1rem', opacity: data.hidePayee ? 0.4 : 1}}>{data.payTo || 'Start typing...'}</div>
+            </div>
+
             <div>
-              <div className="p-label">Date</div>
-              <div className="p-value" id="prevDate" style={livePreviewTextStyle}>{formatPreviewDate(data.date)}</div>
-            </div>
-            <div style={{textAlign:'right'}}>
-              <div className="p-label">Amount</div>
-              <div className="p-value-lg" id="prevAmountNum" style={livePreviewTextStyle}>₹ {data.amountInNumbers ? Number(data.amountInNumbers).toLocaleString('en-IN') + '/-' : '0/-'}</div>
+              <div className="p-label">Sum of</div>
+              <div className="p-words" id="prevWords" style={livePreviewTextStyle}>{data.amountInWords || 'Zero Rupees Only'}</div>
             </div>
           </div>
 
-          <div style={{marginBottom:12}}>
-            <div className="p-label">Pay To</div>
-            <div className="p-value" id="prevPayee" style={{...livePreviewTextStyle, fontSize:'1rem', opacity: data.hidePayee ? 0.4 : 1}}>{data.payTo || 'Start typing...'}</div>
-          </div>
-
-          <div>
-            <div className="p-label">Sum of</div>
-            <div className="p-words" id="prevWords" style={livePreviewTextStyle}>{data.amountInWords || 'Zero Rupees Only'}</div>
+          <div className="card due-payments-card">
+            <div className="due-card-header">
+              <span className="card-header">Payment Watch</span>
+              <span className="due-range">{duePaymentSections.weekRange}</span>
+            </div>
+            <div className="due-section">
+              <div className="due-section-title">Due This Week</div>
+              {renderDuePaymentList(duePaymentSections.thisWeek, historyLoading ? 'Loading due cheques...' : 'No cheques due this week.')}
+            </div>
+            <details className="due-section due-upcoming">
+              <summary className="due-section-title">Upcoming Payments</summary>
+              {renderDuePaymentList(duePaymentSections.upcoming, historyLoading ? 'Loading upcoming cheques...' : 'No upcoming cheques found.')}
+            </details>
           </div>
         </div>
       </div>
