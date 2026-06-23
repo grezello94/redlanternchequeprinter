@@ -13,6 +13,6 @@ export interface ChequeData {
   hidePayee: boolean; // Requirement #2
   crossCheque?: boolean;
   printFont?: 'times' | 'handwriting' | 'edwardian' | 'kunstler' | 'courier';
-  inkColor?: 'blue' | 'darkBlue' | 'lightBlue';
-  createdAt?: any;    // For Firebase sorting
+  inkColor?: 'navyBlue' | 'blue' | 'darkBlue' | 'lightBlue';
+  createdAt?: unknown;    // For Firebase sorting
 }

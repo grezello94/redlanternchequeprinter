@@ -30,6 +30,7 @@ const FONT_OPTIONS = {
 } as const;
 
 const INK_COLOR_OPTIONS = {
+  navyBlue: { label: 'Navy Blue (CTS)', hex: '#000080' },
   blue: { label: 'Blue', hex: '#1d4ed8' },
   darkBlue: { label: 'Dark Blue', hex: '#1e3a8a' },
   lightBlue: { label: 'Light Blue', hex: '#60a5fa' },
@@ -38,7 +39,7 @@ const INK_COLOR_OPTIONS = {
 type PrintFontKey = keyof typeof FONT_OPTIONS;
 type InkColorKey = keyof typeof INK_COLOR_OPTIONS;
 const DEFAULT_PRINT_FONT: PrintFontKey = 'courier';
-const DEFAULT_INK_COLOR: InkColorKey = 'darkBlue';
+const DEFAULT_INK_COLOR: InkColorKey = 'navyBlue';
 type HistoryRecord = { key: string; chequeNo?: string; amount?: string; date?: string; payTo?: string; issuedDay?: string; issuedAt?: string };
 
 export default function App() {
@@ -114,6 +115,9 @@ export default function App() {
     payTo: string;
     date: string;
   } | null>(null);
+
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchQueue, setBatchQueue] = useState<Array<ChequeData & { id: string, selected: boolean }>>([]);
   const WA_TARGET_KEY = 'rl_whatsapp_target_v1';
   const WA_WINDOW_NAME = 'rl_whatsapp_window';
   const PAYEES_CACHE_KEY = 'rl_payees_cache_v1';
@@ -965,11 +969,11 @@ export default function App() {
     for (let i = 0; i < amounts.length; i++) {
       const current = existing[i] || '';
       const entered = window.prompt(
-        `Enter cheque number for split ${i + 1}/${amounts.length} (₹${amounts[i]}/-) before printing:`,
+        `Enter cheque number for split ${i + 1}/${amounts.length} (₹${amounts[i]}/-) before proceeding:`,
         current
       );
       if (!entered || !entered.trim()) {
-        alert('Bifurcation not started. All cheque numbers are required before printing.');
+        alert('Bifurcation not started. All cheque numbers are required before proceeding.');
         return null;
       }
       const cleaned = entered.trim().replace(/\D/g, '');
@@ -1082,22 +1086,12 @@ export default function App() {
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
 
-  const printViaPopup = (snapshot: ChequeData) => {
+  const printViaPopup = (dataItems: ChequeData | ChequeData[]) => {
     if (typeof window === 'undefined') return false;
     const popup = window.open('', '_blank', 'popup=yes,width=1000,height=650');
     if (!popup) return false;
 
-    const date = escapeHtml(snapshot.date || '');
-    const payTo = escapeHtml(snapshot.hidePayee ? '' : (snapshot.payTo || ''));
-    const amountWords = escapeHtml(snapshot.amountInWords || '');
-    const amountNum = escapeHtml(formatAmountForPrint(snapshot.amountInNumbers || ''));
-    const crossingMarkup = snapshot.crossCheque
-      ? '<div class="print-cross-cheque"><span></span><span></span></div>'
-      : '';
-    const snapshotFont = (snapshot.printFont || DEFAULT_PRINT_FONT) as PrintFontKey;
-    const snapshotInk = (snapshot.inkColor || DEFAULT_INK_COLOR) as InkColorKey;
-    const popupFontFamily = FONT_OPTIONS[snapshotFont]?.cssFamily || FONT_OPTIONS[DEFAULT_PRINT_FONT].cssFamily;
-    const popupInkColor = INK_COLOR_OPTIONS[snapshotInk]?.hex || INK_COLOR_OPTIONS[DEFAULT_INK_COLOR].hex;
+    const items = Array.isArray(dataItems) ? dataItems : [dataItems];
 
     popup.document.open();
     popup.document.write(`<!doctype html>
@@ -1108,50 +1102,63 @@ export default function App() {
     <title>Cheque Print</title>
     <style>
       @page { size: 20.4cm 9.5cm; margin: 0; }
-      html, body { margin: 0; padding: 0; width: 20.4cm; height: 9.5cm; overflow: hidden; background: transparent; }
-      .cheque-print-container { position: relative; width: 20.4cm; height: 9.5cm; background: transparent; }
+      html, body { margin: 0; padding: 0; width: 20.4cm; background: transparent; font-size: 0; line-height: 0; }
+      .cheque-page { position: relative; width: 20.4cm; height: 9.5cm; overflow: hidden; page-break-inside: avoid; break-inside: avoid; display: block; }
       .print-cross-cheque {
         position: absolute; top: 0.38cm; left: 0.42cm; width: 6.4cm; height: 1.35cm;
         transform: rotate(-18deg); transform-origin: left top;
       }
       .print-cross-cheque span {
         position: absolute; left: -0.72cm; width: 7.12cm; height: 0;
-        border-top: 0.035cm solid ${popupInkColor};
+        border-top: 0.035cm solid;
         z-index: 1;
       }
       .print-cross-cheque span:first-child { top: 0.18cm; }
       .print-cross-cheque span:last-child { top: 0.82cm; }
       .print-date-field {
         position: absolute; top: 1cm; left: 15.9cm; width: 4.4cm;
-        font-size: 0.50cm; font-weight: bold; font-family: ${popupFontFamily};
-        color: ${popupInkColor}; letter-spacing: 0.18cm; text-align: left; line-height: 1;
+        font-size: 0.50cm; font-weight: bold;
+        letter-spacing: 0.18cm; text-align: left; line-height: 1;
       }
       .print-pay-field {
         position: absolute; top: 2.2cm; left: 3.2cm; width: 13cm;
-        font-size: 0.38cm; font-weight: 600; font-family: ${popupFontFamily};
-        color: ${popupInkColor}; line-height: 1.1; text-transform: uppercase;
+        font-size: 0.38cm; font-weight: 600; line-height: 1.1; text-transform: uppercase;
       }
       .print-amount-words {
         position: absolute; top: 3.0cm; left: 3.8cm; max-width: 16cm;
-        font-size: 0.38cm; font-weight: 600; font-family: ${popupFontFamily};
-        color: ${popupInkColor}; line-height: 1.3; text-transform: uppercase;
+        font-size: 0.38cm; font-weight: 600; line-height: 1.3; text-transform: uppercase;
         white-space: normal; word-wrap: break-word; overflow-wrap: break-word;
       }
       .print-amount-numbers {
         position: absolute; top: 3.7cm; left: 16cm; width: 3.8cm;
-        font-size: 0.59cm; font-weight: bold; font-family: ${popupFontFamily};
-        color: ${popupInkColor}; text-align: left; line-height: 1.1;
+        font-size: 0.59cm; font-weight: bold; text-align: left; line-height: 1.1;
       }
     </style>
   </head>
   <body>
-    <div class="cheque-print-container">
-      ${crossingMarkup}
-      <div class="print-date-field">${date}</div>
-      <div class="print-pay-field">${payTo}</div>
-      <div class="print-amount-words">${amountWords}</div>
-      <div class="print-amount-numbers">${amountNum}</div>
-    </div>
+    ${items.map(snapshot => {
+      const date = escapeHtml(snapshot.date || '');
+      const payTo = escapeHtml(snapshot.hidePayee ? '' : (snapshot.payTo || ''));
+      const amountWords = escapeHtml(snapshot.amountInWords || '');
+      const amountNum = escapeHtml(formatAmountForPrint(snapshot.amountInNumbers || ''));
+      const snapshotFont = (snapshot.printFont || DEFAULT_PRINT_FONT) as PrintFontKey;
+      const snapshotInk = (snapshot.inkColor || DEFAULT_INK_COLOR) as InkColorKey;
+      const popupFontFamily = FONT_OPTIONS[snapshotFont]?.cssFamily || FONT_OPTIONS[DEFAULT_PRINT_FONT].cssFamily;
+      const popupInkColor = INK_COLOR_OPTIONS[snapshotInk]?.hex || INK_COLOR_OPTIONS[DEFAULT_INK_COLOR].hex;
+
+      const crossingMarkup = snapshot.crossCheque
+        ? `<div class="print-cross-cheque"><span style="border-top-color:${popupInkColor}"></span><span style="border-top-color:${popupInkColor}"></span></div>`
+        : '';
+
+      return `
+      <div class="cheque-page" style="font-family: ${popupFontFamily}; color: ${popupInkColor};">
+        ${crossingMarkup}
+        <div class="print-date-field">${date}</div>
+        <div class="print-pay-field">${payTo}</div>
+        <div class="print-amount-words">${amountWords}</div>
+        <div class="print-amount-numbers">${amountNum}</div>
+      </div>`;
+    }).join('')}
   </body>
 </html>`);
     popup.document.close();
@@ -1187,6 +1194,165 @@ export default function App() {
   };
 
   const isMobile = isMobileDevice();
+
+  const handleAddToBatch = () => {
+    if (!data.payTo || !data.amountInNumbers) {
+      setSystemToast('Please fill Payee and Amount before adding to batch.');
+      setTimeout(() => setSystemToast(null), 2500);
+      return;
+    }
+
+    const requiredChequeNo = bifurcateSession
+      ? (bifurcateSession.chequeNos[bifurcateSession.currentIndex] || '').trim()
+      : (data.chequeNo || '').trim();
+
+    if (!requiredChequeNo) {
+      setSystemToast('Please enter a cheque number before adding to batch.');
+      setTimeout(() => setSystemToast(null), 2500);
+      return;
+    }
+
+    const snapshotToAdd = { ...data, chequeNo: requiredChequeNo };
+    setBatchQueue(prev => [...prev, { ...snapshotToAdd, id: Date.now().toString() + Math.random().toString().slice(2, 6), selected: true }]);
+
+    if (bifurcateSession) {
+      const total = bifurcateSession.amounts.length;
+      const printedCount = Math.min(bifurcateSession.printedCount + 1, total);
+      const nextRecords = [
+        ...bifurcateSession.printedRecords,
+        {
+          payTo: bifurcateSession.payTo || snapshotToAdd.payTo || '',
+          date: snapshotToAdd.date || bifurcateSession.date || '',
+          amountInNumbers: snapshotToAdd.amountInNumbers || '',
+          amountInWords: snapshotToAdd.amountInWords || '',
+          chequeNo: requiredChequeNo,
+          issuedAt: new Date().toISOString(),
+        },
+      ];
+
+      if (printedCount < total) {
+        const nextAmount = bifurcateSession.amounts[printedCount] || '';
+        const nextChequeNo = bifurcateSession.chequeNos[printedCount] || '';
+        setBifurcateSession({
+          ...bifurcateSession,
+          printedCount,
+          printedRecords: nextRecords,
+          currentIndex: printedCount,
+        });
+        setData(d => ({ ...d, amountInNumbers: nextAmount, amountInWords: numberToWords(nextAmount), chequeNo: nextChequeNo }));
+        setSystemToast(`Added split ${printedCount}/${total} to batch. Next split loaded.`);
+        setTimeout(() => setSystemToast(null), 2200);
+      } else {
+        setBifurcateSession({
+          ...bifurcateSession,
+          printedCount,
+          printedRecords: nextRecords,
+          currentIndex: total - 1,
+        });
+        setSystemToast('All splits added to batch.');
+        setTimeout(() => setSystemToast(null), 2600);
+      }
+    } else {
+      setSystemToast('Added to batch queue.');
+      setTimeout(() => setSystemToast(null), 2000);
+      setData(d => ({ ...d, payTo: '', amountInNumbers: '', amountInWords: '', chequeNo: '' }));
+    }
+  };
+
+  const toggleBatchSelection = (id: string, selected: boolean) => {
+    setBatchQueue(prev => prev.map(item => item.id === id ? { ...item, selected } : item));
+  };
+
+  const updateBatchItemChequeNo = (id: string, chequeNo: string) => {
+    setBatchQueue(prev => prev.map(item => item.id === id ? { ...item, chequeNo: chequeNo.replace(/\D/g, '') } : item));
+  };
+
+  const removeBatchItem = (id: string) => {
+    setBatchQueue(prev => prev.filter(item => item.id !== id));
+  };
+
+  function orderBatchItemsByChequeNo<T extends { chequeNo?: string }>(items: T[]) {
+    return items
+      .map((item, index) => ({ item, index, chequeNo: (item.chequeNo || '').trim() }))
+      .sort((a, b) => {
+        if (!a.chequeNo && !b.chequeNo) return a.index - b.index;
+        if (!a.chequeNo) return 1;
+        if (!b.chequeNo) return -1;
+        const chequeCompare = a.chequeNo.localeCompare(b.chequeNo, undefined, { numeric: true });
+        return chequeCompare || a.index - b.index;
+      })
+      .map(({ item }) => item);
+  }
+
+  const handleBatchPrint = () => {
+    const selected = orderBatchItemsByChequeNo(batchQueue.filter(i => i.selected));
+    if (!selected.length) {
+      setPrintingToast('No cheques selected for printing.');
+      setTimeout(() => setPrintingToast(null), 2500);
+      return;
+    }
+    if (selected.some(i => !i.chequeNo)) {
+      setPrintingToast('Please enter cheque numbers for all selected cheques.');
+      setTimeout(() => setPrintingToast(null), 2500);
+      return;
+    }
+
+    try {
+      setPrintingToast('Preparing batch print...');
+      // Browser print dialogs commonly send the last page first for multi-page jobs.
+      // Generate pages in reverse cheque order so the physical cheque stack lands correctly.
+      const popupPrinted = printViaPopup([...selected].reverse());
+      if (!popupPrinted) {
+        alert("Please allow popups for this site to print multiple cheques in batch mode.");
+        setPrintingToast(null);
+        return;
+      }
+      setTimeout(() => setPrintingToast(null), 2000);
+
+      setSystemToast('Batch printed. Tap Save to record selected cheques.');
+      setTimeout(() => setSystemToast(null), 3000);
+    } catch (e) {
+      console.error('Batch print failed', e);
+      setPrintingToast('Unable to print batch.');
+      setTimeout(() => setPrintingToast(null), 3000);
+    }
+  };
+
+  const saveSelectedBatchCheques = async () => {
+    const selected = orderBatchItemsByChequeNo(batchQueue.filter(i => i.selected));
+    if (!selected.length) {
+      setSaveError('No cheques selected to save.');
+      setTimeout(() => setSaveError(null), 2500);
+      return;
+    }
+    if (selected.some(i => !i.chequeNo)) {
+      setSaveError('Please enter cheque numbers for all selected cheques.');
+      setTimeout(() => setSaveError(null), 2500);
+      return;
+    }
+
+    const savedIds: string[] = [];
+    const nowIso = new Date().toISOString();
+    for (const item of selected) {
+      const result = await persistChequeRecord({
+        payTo: item.payTo,
+        payToLower: normalizePayee(item.payTo),
+        date: item.date,
+        amountInNumbers: item.amountInNumbers,
+        amountInWords: item.amountInWords,
+        chequeNo: item.chequeNo,
+        issuedAt: nowIso,
+      });
+      if (result.duplicate) break;
+      savedIds.push(item.id);
+    }
+
+    if (savedIds.length) {
+      setBatchQueue(prev => prev.filter(item => !savedIds.includes(item.id)));
+      setSystemToast(`${savedIds.length} batch cheque${savedIds.length === 1 ? '' : 's'} saved.`);
+      setTimeout(() => setSystemToast(null), 2800);
+    }
+  };
 
   const handlePrint = () => {
     console.log('handlePrint invoked', { payTo: data.payTo, amount: data.amountInNumbers });
@@ -1740,7 +1906,68 @@ export default function App() {
 
       <div className="container">
         <div className="card">
-          <span className="card-header">Details</span>
+          <span className="card-header" style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+            Details
+          </span>
+
+          <div style={{display:'flex', background:'#e2e8f0', borderRadius:8, padding:4, marginBottom:16}}>
+            <button
+              onClick={() => {
+                setBatchMode(false);
+                setBifurcateSession(null);
+              }}
+              style={{flex:1, padding:'8px 0', borderRadius:6, border:'none', background: !batchMode ? '#fff' : 'transparent', fontWeight: !batchMode ? 'bold' : 'normal', boxShadow: !batchMode ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor:'pointer', color: '#334155'}}
+            >
+              Single Cheque
+            </button>
+            <button
+              onClick={() => {
+                setBatchMode(true);
+                setBifurcateSession(null);
+              }}
+              style={{flex:1, padding:'8px 0', borderRadius:6, border:'none', background: batchMode ? '#fff' : 'transparent', fontWeight: batchMode ? 'bold' : 'normal', boxShadow: batchMode ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor:'pointer', color: '#334155'}}
+            >
+              Multiple Cheques (Batch)
+            </button>
+          </div>
+
+          {batchMode && (
+            <div style={{marginBottom: 20, background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:8, padding:12}}>
+              <div style={{fontWeight:'bold', marginBottom:8, color:'#334155'}}>Batch Queue</div>
+              {batchQueue.length === 0 ? (
+                 <p style={{color:'#64748b', fontSize:'0.9rem', marginBottom: 0}}>No cheques added. Fill the form below and click "ADD TO BATCH".</p>
+              ) : (
+                 <div style={{display:'flex', flexDirection:'column', gap:8}}>
+                   {orderBatchItemsByChequeNo(batchQueue).map((item) => (
+                     <div key={item.id} style={{display:'flex', alignItems:'center', gap:10, padding:8, background:'#fff', borderRadius:6, border:'1px solid #cbd5e1'}}>
+                       <input type="checkbox" checked={item.selected} onChange={e => toggleBatchSelection(item.id, e.target.checked)} />
+                       <div style={{flex:1}}>
+                         <div style={{fontWeight:'bold', fontSize:'0.95rem'}}>
+                           {item.payTo || 'Blank'}
+                           <span style={{fontWeight:'normal', color:'#555'}}> - ₹{item.amountInNumbers}</span>
+                           {item.crossCheque && <span style={{marginLeft: 8, fontSize: '0.7rem', background: '#e2e8f0', padding: '2px 6px', borderRadius: 4, color: '#475569'}}>Crossed</span>}
+                         </div>
+                         <div style={{fontSize:'0.8rem', color:'#777'}}>Date: {formatPreviewDate(item.date)}</div>
+                       </div>
+                       <input
+                         type="text"
+                         placeholder="Cheque No"
+                         value={item.chequeNo}
+                         onChange={e => updateBatchItemChequeNo(item.id, e.target.value)}
+                         style={{width:90, padding:'4px 8px', border:'1px solid #cbd5e1', borderRadius:4, fontSize:'0.9rem'}}
+                       />
+                       <button onClick={() => removeBatchItem(item.id)} type="button" style={{background:'none', border:'none', color:'#ef4444', cursor:'pointer', fontWeight:'bold'}}>×</button>
+                     </div>
+                   ))}
+                 </div>
+              )}
+              {batchQueue.length > 0 && (
+                <button className="history-btn primary" type="button" style={{marginTop:10, width:'100%', padding: '10px 0', fontSize: '1rem'}} onClick={handleBatchPrint}>
+                  Print Selected ({batchQueue.filter(i => i.selected).length})
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="input-wrapper">
             <label className="input-label">Payee Name</label>
@@ -1852,11 +2079,13 @@ export default function App() {
                         setTimeout(() => setSaveError(null), 3000);
                         return;
                       }
-                      const chequeNos = promptBifurcationChequeNumbers(amounts, bifurcateSession?.chequeNos || []);
-                      if (!chequeNos) return;
+
                       const sessionDate = data.date || new Date().toLocaleDateString('en-GB').replace(/\//g, '');
                       dateManuallyEditedRef.current = true;
                       pendingAutoDatePayeeRef.current = null;
+
+                      const chequeNos = promptBifurcationChequeNumbers(amounts, bifurcateSession?.chequeNos || []);
+                      if (!chequeNos) return;
                       setBifurcateSession({
                         amounts,
                         chequeNos,
@@ -2056,27 +2285,43 @@ export default function App() {
           </svg>
         </button>
 
-        {lastPrinted && (
-          <button className="dock-btn btn-save" onClick={savePrintedCheque} title="Save printed cheque">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" xmlns="http://www.w3.org/2000/svg">
-              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9l7 7v9a2 2 0 0 1-2 2z"></path>
-              <path d="M17 21v-8H7v8"></path>
+        <button
+          className="dock-btn btn-save"
+          onClick={batchMode ? saveSelectedBatchCheques : savePrintedCheque}
+          title={batchMode ? 'Save selected batch cheques' : 'Save printed cheque'}
+          aria-label={batchMode ? 'Save selected batch cheques' : 'Save printed cheque'}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" xmlns="http://www.w3.org/2000/svg">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9l7 7v9a2 2 0 0 1-2 2z"></path>
+            <path d="M17 21v-8H7v8"></path>
+          </svg>
+          SAVE
+        </button>
+
+        {batchMode ? (
+          <button className="dock-btn btn-print" onClick={handleAddToBatch} aria-label="Add to Batch" style={{background: '#10b981', color: 'white'}}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" xmlns="http://www.w3.org/2000/svg">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
+            ADD TO BATCH
+          </button>
+        ) : (
+          <button className="dock-btn btn-print" onClick={handlePrint} aria-label="Print">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" xmlns="http://www.w3.org/2000/svg">
+              <polyline points="6 9 6 2 18 2 18 9"></polyline>
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+              <rect x="6" y="14" width="12" height="8"></rect>
+            </svg>
+            PRINT
           </button>
         )}
 
-        <button className="dock-btn btn-print" onClick={handlePrint} aria-label="Print">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" xmlns="http://www.w3.org/2000/svg">
-            <polyline points="6 9 6 2 18 2 18 9"></polyline>
-            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
-            <rect x="6" y="14" width="12" height="8"></rect>
-          </svg>
-          PRINT
-        </button>
-
-        <button className="dock-btn btn-pdf" onClick={exportPdfAndShare} aria-label="Share PDF" title="Share PDF">
-          PDF
-        </button>
+        {!batchMode && (
+          <button className="dock-btn btn-pdf" onClick={exportPdfAndShare} aria-label="Share PDF" title="Share PDF">
+            PDF
+          </button>
+        )}
 
         <button className="dock-btn btn-wa" onClick={async () => {
           if (pendingWhatsAppMessage) {
