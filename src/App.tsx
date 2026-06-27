@@ -2323,7 +2323,10 @@ export default function App() {
               onClick={openDatePicker}
             />
             {datePickerOpen && (
-              <div className="date-picker-popover">
+              <div
+                className="date-picker-popover"
+                onMouseDown={e => e.preventDefault()}
+              >
                 <div className="date-picker-header">
                   <button type="button" onClick={() => moveDatePickerMonth(-1)} aria-label="Previous month">‹</button>
                   <span>{datePickerMonth.toLocaleString('en-US', { month: 'short', year: 'numeric' })}</span>
