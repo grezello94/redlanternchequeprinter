@@ -528,7 +528,23 @@ header {
     font-size: 0.8rem;
     font-weight: 800;
     color: var(--text-main);
+}
+
+.due-section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     margin-bottom: 10px;
+}
+
+.due-section-total {
+    flex: 0 0 auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    font-weight: 800;
+    color: var(--primary);
+    white-space: nowrap;
 }
 
 .due-upcoming {
@@ -538,11 +554,11 @@ header {
 .due-upcoming > summary {
     cursor: pointer;
     list-style: none;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
     margin-bottom: 0;
+}
+
+.due-upcoming > summary .due-section-title {
+    flex: 1 1 auto;
 }
 
 .due-upcoming > summary::-webkit-details-marker {
@@ -902,9 +918,10 @@ header {
         background: transparent;
     }
     .print-date-field {
-        position: absolute; top: 1cm; left: 15.9cm; width: 4.4cm;
+        position: absolute; top: 1cm; left: 15.5cm; width: 3.84cm;
+        display: grid; grid-template-columns: repeat(8, 0.48cm);
         font-size: 0.50cm; font-weight: bold; font-family: var(--print-font-family, 'Times New Roman', serif);
-        color: var(--print-ink-color, #000080); letter-spacing: 0.18cm; text-align: left; line-height: 1;
+        color: var(--print-ink-color, #000080); text-align: center; line-height: 1;
     }
     .print-pay-field {
         position: absolute; top: 2.2cm; left: 3.2cm; width: 13cm;

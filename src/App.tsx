@@ -1003,9 +1003,18 @@ export default function App() {
         return (a.chequeNo || '').localeCompare(b.chequeNo || '', undefined, { numeric: true });
       });
 
+    const thisWeek = payments.filter(record => record.dueDate >= rangeStart && record.dueDate <= weekEnd);
+    const upcoming = payments.filter(record => record.dueDate > weekEnd).slice(0, 8);
+    const totalAmount = (records: typeof payments) => records.reduce((total, record) => {
+      const amount = Number((record.amount || '').toString().replace(/[^\d.]/g, ''));
+      return total + (Number.isFinite(amount) ? amount : 0);
+    }, 0);
+
     return {
-      thisWeek: payments.filter(record => record.dueDate >= rangeStart && record.dueDate <= weekEnd),
-      upcoming: payments.filter(record => record.dueDate > weekEnd).slice(0, 8),
+      thisWeek,
+      upcoming,
+      thisWeekTotal: totalAmount(thisWeek),
+      upcomingTotal: totalAmount(upcoming),
       weekRange: `${formatPreviewDate(`${String(rangeStart.getDate()).padStart(2, '0')}${String(rangeStart.getMonth() + 1).padStart(2, '0')}${rangeStart.getFullYear()}`)} - ${formatPreviewDate(`${String(weekEnd.getDate()).padStart(2, '0')}${String(weekEnd.getMonth() + 1).padStart(2, '0')}${weekEnd.getFullYear()}`)}`,
     };
   }, [historyRecords]);
@@ -1231,9 +1240,10 @@ export default function App() {
       .print-cross-cheque span:first-child { top: 0.18cm; }
       .print-cross-cheque span:last-child { top: 0.82cm; }
       .print-date-field {
-        position: absolute; top: 1cm; left: 15.9cm; width: 4.4cm;
+        position: absolute; top: 1cm; left: 15.5cm; width: 3.84cm;
+        display: grid; grid-template-columns: repeat(8, 0.48cm);
         font-size: 0.50cm; font-weight: bold;
-        letter-spacing: 0.18cm; text-align: left; line-height: 1;
+        text-align: center; line-height: 1;
       }
       .print-pay-field {
         position: absolute; top: 2.2cm; left: 3.2cm; width: 13cm;
@@ -1252,7 +1262,11 @@ export default function App() {
   </head>
   <body>
     ${items.map(snapshot => {
-      const date = escapeHtml(snapshot.date || '');
+      const date = (snapshot.date || '')
+        .slice(0, 8)
+        .split('')
+        .map(digit => `<span>${escapeHtml(digit)}</span>`)
+        .join('');
       const payTo = escapeHtml(snapshot.hidePayee ? '' : (snapshot.payTo || ''));
       const amountWords = escapeHtml(snapshot.amountInWords || '');
       const amountNum = escapeHtml(formatAmountForPrint(snapshot.amountInNumbers || ''));
@@ -2433,11 +2447,17 @@ export default function App() {
               <span className="due-range">{duePaymentSections.weekRange}</span>
             </div>
             <div className="due-section">
-              <div className="due-section-title">Due This Week</div>
+              <div className="due-section-heading">
+                <div className="due-section-title">Due This Week</div>
+                <div className="due-section-total">₹{duePaymentSections.thisWeekTotal.toLocaleString('en-IN')}</div>
+              </div>
               {renderDuePaymentList(duePaymentSections.thisWeek, historyLoading ? 'Loading due cheques...' : 'No cheques due this week.')}
             </div>
             <details className="due-section due-upcoming">
-              <summary className="due-section-title">Upcoming Payments</summary>
+              <summary className="due-section-heading">
+                <span className="due-section-title">Upcoming Payments</span>
+                <span className="due-section-total">₹{duePaymentSections.upcomingTotal.toLocaleString('en-IN')}</span>
+              </summary>
               {renderDuePaymentList(duePaymentSections.upcoming, historyLoading ? 'Loading upcoming cheques...' : 'No upcoming cheques found.')}
             </details>
           </div>
@@ -2792,7 +2812,11 @@ export default function App() {
             <span></span>
           </div>
         )}
-        <div className="print-date-field">{data.date}</div>
+        <div className="print-date-field">
+          {(data.date || '').slice(0, 8).split('').map((digit, index) => (
+            <span key={`${index}-${digit}`}>{digit}</span>
+          ))}
+        </div>
         <div className="print-pay-field">{!data.hidePayee ? data.payTo : ''}</div>
         <div className="print-amount-words">{data.amountInWords}</div>
         <div className="print-amount-numbers">{data.amountInNumbers ? formatAmountForPrint(data.amountInNumbers) : ''}</div>
