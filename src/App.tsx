@@ -1240,11 +1240,13 @@ export default function App() {
       .print-cross-cheque span:first-child { top: 0.18cm; }
       .print-cross-cheque span:last-child { top: 0.82cm; }
       .print-date-field {
-        position: absolute; top: 1cm; left: 15.5cm; width: 3.84cm;
+        position: absolute; top: 1cm; left: 15.02cm; width: 3.84cm;
         display: grid; grid-template-columns: repeat(8, 0.48cm);
         font-size: 0.50cm; font-weight: bold;
+        font-variant-numeric: tabular-nums;
         text-align: center; line-height: 1;
       }
+      .print-date-field span { display: flex; align-items: center; justify-content: center; min-width: 0; }
       .print-pay-field {
         position: absolute; top: 2.2cm; left: 3.2cm; width: 13cm;
         font-size: 0.38cm; font-weight: 600; line-height: 1.1; text-transform: uppercase;

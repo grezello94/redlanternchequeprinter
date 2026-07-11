@@ -24,7 +24,9 @@ export default function ChequePrint({ data, onMount, onUnmount }: ChequePrintPro
     <div className="cheque-print-container">
       {/* Date Field - 1cm from top, starts at 15.7cm from left */}
       <div className="print-date-field">
-        {data.date || ''}
+        {(data.date || '').slice(0, 8).split('').map((digit, index) => (
+          <span key={`${index}-${digit}`}>{digit}</span>
+        ))}
       </div>
 
       {/* Pay To Field - 2.7cm from left, positioned below date area */}

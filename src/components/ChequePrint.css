@@ -27,20 +27,29 @@
     background: transparent;
   }
 
-  /* Date Field - Exact measurements: 1cm from top, 15.7cm from left */
+  /* Date Field - each digit sits inside its own cheque date box */
   .print-date-field {
     position: absolute;
-    top: 1.2cm; /* actual was set to 1cm */
-    left: 15.9cm;
+    top: 1cm;
+    left: 15.02cm;
+    width: 3.84cm;
+    display: grid;
+    grid-template-columns: repeat(8, 0.48cm);
     font-size: 0.50cm;
     font-weight: bold;
-    font-family: 'Courier New', monospace;
+    font-family: var(--print-font-family, 'Times New Roman', serif);
+    font-variant-numeric: tabular-nums;
     color: var(--print-ink-color, #000080);
-    letter-spacing: 0.18cm;
-    width: 4.4cm;
-    text-align: left;
+    text-align: center;
     line-height: 1;
     background: transparent;
+  }
+
+  .print-date-field span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
   }
 
   /* Pay To Field - 2.7cm from left edge (where "Pay" line starts) */

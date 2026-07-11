@@ -918,11 +918,13 @@ header {
         background: transparent;
     }
     .print-date-field {
-        position: absolute; top: 1cm; left: 15.5cm; width: 3.84cm;
+        position: absolute; top: 1cm; left: 15.02cm; width: 3.84cm;
         display: grid; grid-template-columns: repeat(8, 0.48cm);
         font-size: 0.50cm; font-weight: bold; font-family: var(--print-font-family, 'Times New Roman', serif);
+        font-variant-numeric: tabular-nums;
         color: var(--print-ink-color, #000080); text-align: center; line-height: 1;
     }
+    .print-date-field span { display: flex; align-items: center; justify-content: center; min-width: 0; }
     .print-pay-field {
         position: absolute; top: 2.2cm; left: 3.2cm; width: 13cm;
         font-size: 0.38cm; font-weight: 600; font-family: var(--print-font-family, 'Times New Roman', serif);
