@@ -17,7 +17,7 @@ export default defineConfig({
         name: 'Red Lantern Cheque Printer',
         short_name: 'RedLantern',
         description: 'Professional Cheque Printing for Red Lantern Restaurant',
-        theme_color: '#ff5e6c', // Your brand accent color
+        theme_color: '#f4f7fc',
         icons: [
           { src: 'app-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'app-512.png', sizes: '512x512', type: 'image/png' }

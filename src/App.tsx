@@ -4,6 +4,7 @@ import jsPDF from 'jspdf';
 import { db, repairIndexedDbPersistence } from './firebase';
 import { collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs, where, startAt, endAt, startAfter, writeBatch, onSnapshot, doc, runTransaction } from 'firebase/firestore';
 import type { ChequeData } from './types';
+import { ArrowDownLeft, ArrowUpRight, CalendarDays, Check, CheckCheck, ChevronRight, CircleHelp, ClipboardList, Clock3, FileText, Layers3, LayoutDashboard, Radio, RotateCcw, Settings2, ShieldCheck, Sparkles, Wallet, Wifi, WifiOff, X } from 'lucide-react';
 // print components are not directly imported here; we use print container markup
 
 const FONT_OPTIONS = {
@@ -65,6 +66,12 @@ export default function App() {
   const [payeesReloadKey, setPayeesReloadKey] = useState(0);
   const [filteredPayees, setFilteredPayees] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activePayeeIndex, setActivePayeeIndex] = useState(-1);
+  useEffect(() => {
+    if (showSuggestions && activePayeeIndex >= 0) {
+      document.getElementById(`payee-option-${activePayeeIndex}`)?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [activePayeeIndex, showSuggestions]);
   const [recentCheques, setRecentCheques] = useState<Array<{ chequeNo?: string; amount?: string; date?: string; payTo?: string; issuedDay?: string; issuedAt?: string }>>([]);
   const [lastPrinted, setLastPrinted] = useState<ChequeData | null>(null);
   const [lastPrintedAt, setLastPrintedAt] = useState<string | null>(null);
@@ -125,6 +132,52 @@ export default function App() {
 
   const [batchMode, setBatchMode] = useState(false);
   const [batchQueue, setBatchQueue] = useState<Array<ChequeData & { id: string, selected: boolean }>>([]);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  const historyDialogRef = useRef<HTMLDivElement>(null);
+  const adminDialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const update = () => setIsOnline(navigator.onLine);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!historyOpen && !adminOpen) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const dialog = (historyOpen ? historyDialogRef : adminDialogRef).current;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusTimer = window.setTimeout(() => dialog?.querySelector<HTMLInputElement>('input')?.focus(), window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 50 : 320);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setHistoryOpen(false);
+        setAdminOpen(false);
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+      const controls = Array.from(dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]')).filter(element => element.getClientRects().length > 0);
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+      previousFocus?.focus();
+    };
+  }, [historyOpen, adminOpen]);
   const WA_TARGET_KEY = 'rl_whatsapp_target_v1';
   const WA_WINDOW_NAME = 'rl_whatsapp_window';
   const PAYEES_CACHE_KEY = 'rl_payees_cache_v1';
@@ -764,7 +817,6 @@ export default function App() {
     const liveMatches = livePayeeMatches.filter(p => normalizePayee(p).includes(v));
     const merged = mergePayees(localMatches, liveMatches);
     setFilteredPayees(merged.slice(0, 10));
-    setShowSuggestions(true);
   }, [payees, livePayeeMatches, data.payTo]);
 
   useEffect(() => {
@@ -1021,7 +1073,7 @@ export default function App() {
 
   const renderDuePaymentList = (records: Array<HistoryRecord & { dueDate: Date; dueTime: number }>, emptyText: string) => {
     if (!records.length) {
-      return <div className="due-empty">{emptyText}</div>;
+      return <div className="due-empty"><CheckCheck size={22} /><span>{emptyText}</span></div>;
     }
     return (
       <div className="due-list">
@@ -1974,13 +2026,50 @@ export default function App() {
   };
 
   return (
-    <div>
-      <header>
-        <div className="brand">
-          <span className="brand-icon">🏮</span>
-          <span className="brand-name">Cheque Printer | Red Lantern Restaurant</span>
+    <div className="app-shell">
+      <a className="skip-link" href="#workspace">Skip to workspace</a>
+      <aside className="sidebar" aria-label="Main navigation">
+        <a className="brand" href="#workspace" aria-label="Red Lantern home">
+          <span className="brand-mark"><span></span><span></span><span></span></span>
+          <span className="brand-copy"><strong>RED LANTERN<span className="brand-period">.</span></strong><small>PAYMENT STUDIO</small></span>
+        </a>
+        <div className="nav-caption">WORKSPACE</div>
+        <nav className="side-nav">
+          <button className={`nav-item ${!historyOpen && !adminOpen ? 'active' : ''}`} onClick={() => { setHistoryOpen(false); setAdminOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><LayoutDashboard size={19} /><span>Cheque studio</span><span className="nav-active-dot"></span></button>
+          <button className={`nav-item ${historyOpen ? 'active' : ''}`} onClick={() => { setAdminOpen(false); setHistoryOpen(true); }}><Clock3 size={19} /><span>Print history</span><span className="nav-count">{historyRecords.length}</span></button>
+          <button className="nav-item" onClick={() => document.getElementById('payment-watch')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}><Wallet size={19} /><span>Payment watch</span></button>
+        </nav>
+        <div className="nav-caption tools-caption">TOOLS</div>
+        <nav className="side-nav" aria-label="Tools">
+          <button className="nav-item" onClick={() => document.getElementById('print-settings')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}><Settings2 size={19} /><span>Print preferences</span></button>
+          <button className={`nav-item ${adminOpen ? 'active' : ''}`} onClick={() => { setHistoryOpen(false); setAdminOpen(true); }}><ShieldCheck size={19} /><span>Data & sync</span>{pendingQueue.length > 0 && <span className="nav-count">{pendingQueue.length}</span>}</button>
+          <button className="nav-item" onClick={() => setShowPrintSetup(v => !v)}><CircleHelp size={19} /><span>Print setup</span></button>
+        </nav>
+        <div className="sidebar-bottom">
+          <div className={`connection-card ${isOnline ? '' : 'offline'}`}>
+            <span className="connection-icon">{isOnline ? <Wifi size={17} /> : <WifiOff size={17} />}</span>
+            <div><strong>{isOnline ? 'You’re online' : 'Offline mode'}</strong><small>{pendingQueue.length ? `${pendingQueue.length} awaiting sync` : 'Local cache enabled'}</small></div>
+            <span className="status-dot"></span>
+          </div>
+          <div className="workspace-account"><span className="account-avatar">RL</span><div><strong>Red Lantern Restaurant</strong><small>Colva, Goa</small></div></div>
         </div>
+      </aside>
+      <header className="topbar">
+        <div className="mobile-brand"><span className="brand-mark"><span></span><span></span><span></span></span><strong>RED LANTERN<span className="brand-period">.</span></strong></div>
+        <div className="breadcrumb">Workspace <ChevronRight size={14} /><span>Cheque studio</span></div>
+        <div className="topbar-meta"><span className={`online-pill ${isOnline ? '' : 'offline'}`}><span className="status-dot"></span>{isOnline ? 'Online' : 'Offline'}</span><button className="mobile-help icon-button" onClick={() => setShowPrintSetup(v => !v)} aria-label="Print setup help"><CircleHelp size={18} /></button><span className="topbar-date"><CalendarDays size={15} />{new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span><span className="topbar-avatar">RL</span></div>
       </header>
+
+      <div className="page-heading" id="workspace">
+        <div><div className="eyebrow"><span></span>YOUR PAYMENT COMMAND CENTRE</div><h1>Precision in every payment<span>.</span></h1><p>Create, preview, and print your cheques. All in one place.</p></div>
+        <button className="outline-button history-shortcut" onClick={() => setHistoryOpen(true)}><Clock3 size={16} />View history<ArrowUpRight size={15} /></button>
+      </div>
+
+      <div className="workspace-overview" aria-label="Payment overview">
+        <div className="overview-card"><span className="overview-icon mint"><ArrowDownLeft size={19} /></span><div><span className="overview-label">Due this week</span><strong>{historyLoading && !historyRecords.length ? '—' : `₹${duePaymentSections.thisWeekTotal.toLocaleString('en-IN')}`}</strong><small>{duePaymentSections.thisWeek.length} cheques in loaded history</small></div><span className="overview-period">THIS WEEK</span></div>
+        <div className="overview-card"><span className="overview-icon blue"><CalendarDays size={19} /></span><div><span className="overview-label">Upcoming payments</span><strong>{historyLoading && !historyRecords.length ? '—' : `₹${duePaymentSections.upcomingTotal.toLocaleString('en-IN')}`}</strong><small>Next {duePaymentSections.upcoming.length} cheques after this week</small></div><ArrowUpRight className="overview-arrow" size={18} /></div>
+        <button className="overview-card overview-button" onClick={() => setAdminOpen(true)}><span className="overview-icon amber"><Layers3 size={19} /></span><div><span className="overview-label">Pending sync</span><strong>{String(pendingQueue.length).padStart(2, '0')}</strong><small>{pendingQueue.length ? 'Queued locally · view details' : 'No cheques in the local queue'}</small></div><ChevronRight className="overview-arrow" size={18} /></button>
+      </div>
 
       {showPrintSetup && (
         <div className="setup-card">
@@ -2035,59 +2124,60 @@ export default function App() {
         <div className="printing-toast" role="status">{printingToast}</div>
       )}
 
-      <div className="container">
-        <div className="card">
-          <span className="card-header" style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-            Details
-          </span>
+      <main className="container" aria-label="Cheque workspace">
+        <div className="form-column">
+        <section className="card details-card" aria-labelledby="details-heading">
+          <div className="section-header"><div className="section-title"><span className="section-icon"><FileText size={18} /></span><div><h2 id="details-heading">Cheque details</h2><p>A few details. A perfectly prepared cheque.</p></div></div><span className="section-index">01</span></div>
 
-          <div style={{display:'flex', background:'#e2e8f0', borderRadius:8, padding:4, marginBottom:16}}>
+          <div className="mode-switch" aria-label="Cheque mode">
             <button
+              className={!batchMode ? 'selected' : ''}
+              aria-pressed={!batchMode}
               onClick={() => {
                 setBatchMode(false);
                 setBifurcateSession(null);
               }}
-              style={{flex:1, padding:'8px 0', borderRadius:6, border:'none', background: !batchMode ? '#fff' : 'transparent', fontWeight: !batchMode ? 'bold' : 'normal', boxShadow: !batchMode ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor:'pointer', color: '#334155'}}
             >
-              Single Cheque
+              <FileText size={15} />Single cheque
             </button>
             <button
+              className={batchMode ? 'selected' : ''}
+              aria-pressed={batchMode}
               onClick={() => {
                 setBatchMode(true);
                 setBifurcateSession(null);
               }}
-              style={{flex:1, padding:'8px 0', borderRadius:6, border:'none', background: batchMode ? '#fff' : 'transparent', fontWeight: batchMode ? 'bold' : 'normal', boxShadow: batchMode ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor:'pointer', color: '#334155'}}
             >
-              Multiple Cheques (Batch)
+              <Layers3 size={15} />Batch cheques{batchQueue.length > 0 && <span className="mode-count">{batchQueue.length}</span>}
             </button>
           </div>
 
           {batchMode && (
-            <div style={{marginBottom: 20, background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:8, padding:12}}>
-              <div style={{fontWeight:'bold', marginBottom:8, color:'#334155'}}>Batch Queue</div>
+            <div className="batch-panel">
+              <div className="batch-heading"><Layers3 size={16} />Batch queue<span>{batchQueue.length} cheques</span></div>
               {batchQueue.length === 0 ? (
-                 <p style={{color:'#64748b', fontSize:'0.9rem', marginBottom: 0}}>No cheques added. Fill the form below and click "ADD TO BATCH".</p>
+                 <p className="batch-empty">Build your batch below, then choose Add to batch. You can review every cheque before printing.</p>
               ) : (
-                 <div style={{display:'flex', flexDirection:'column', gap:8}}>
+                 <div className="batch-list">
                    {orderBatchItemsByChequeNo(batchQueue).map((item) => (
-                     <div key={item.id} style={{display:'flex', alignItems:'center', gap:10, padding:8, background:'#fff', borderRadius:6, border:'1px solid #cbd5e1'}}>
-                       <input type="checkbox" checked={item.selected} onChange={e => toggleBatchSelection(item.id, e.target.checked)} />
-                       <div style={{flex:1}}>
-                         <div style={{fontWeight:'bold', fontSize:'0.95rem'}}>
+                     <div key={item.id} className="batch-item">
+                       <input type="checkbox" aria-label={`Select ${item.payTo || 'cheque'}`} checked={item.selected} onChange={e => toggleBatchSelection(item.id, e.target.checked)} />
+                       <div className="batch-item-main">
+                         <div className="batch-item-title">
                            {item.payTo || 'Blank'}
-                           <span style={{fontWeight:'normal', color:'#555'}}> - ₹{item.amountInNumbers}</span>
-                           {item.crossCheque && <span style={{marginLeft: 8, fontSize: '0.7rem', background: '#e2e8f0', padding: '2px 6px', borderRadius: 4, color: '#475569'}}>Crossed</span>}
+                           <span className="batch-item-meta"> · ₹{item.amountInNumbers}</span>
+                           {item.crossCheque && <span className="batch-badge">Crossed</span>}
                          </div>
-                         <div style={{fontSize:'0.8rem', color:'#777'}}>Date: {formatPreviewDate(item.date)}</div>
+                         <div className="batch-item-meta">{formatPreviewDate(item.date)}</div>
                        </div>
                        <input
                          type="text"
                          placeholder="Cheque No"
                          value={item.chequeNo}
                          onChange={e => updateBatchItemChequeNo(item.id, e.target.value)}
-                         style={{width:90, padding:'4px 8px', border:'1px solid #cbd5e1', borderRadius:4, fontSize:'0.9rem'}}
+                         className="batch-number" aria-label={`Cheque number for ${item.payTo || 'blank payee'}`}
                        />
-                       <button onClick={() => removeBatchItem(item.id)} type="button" style={{background:'none', border:'none', color:'#ef4444', cursor:'pointer', fontWeight:'bold'}}>×</button>
+                       <button onClick={() => removeBatchItem(item.id)} type="button" className="icon-button" aria-label={`Remove ${item.payTo || 'cheque'} from batch`}><X size={16} /></button>
                      </div>
                    ))}
                  </div>
@@ -2100,34 +2190,52 @@ export default function App() {
             </div>
           )}
 
-          <div className="input-wrapper">
-            <label className="input-label">Payee Name</label>
-            <input className="input-box" type="text" id="inputPayee" list="payee-list" placeholder="e.g. Joshua Foods" value={data.payTo} onChange={e => setData(d => ({ ...d, payTo: e.target.value }))} onFocus={() => { if (filteredPayees.length) setShowSuggestions(true); }} onBlur={() => setTimeout(() => setShowSuggestions(false), 200)} autoComplete="off" />
-            <datalist id="payee-list">
-              {payees.map(p => <option key={p} value={p} />)}
-            </datalist>
+          <div className="input-wrapper" onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setShowSuggestions(false); }}>
+            <label className="input-label" htmlFor="inputPayee">Payee name<span>REQUIRED</span></label>
+            <input
+              className="input-box" type="text" id="inputPayee" placeholder="e.g. Joshua Foods" value={data.payTo} autoComplete="off" aria-required="true"
+              role="combobox" aria-autocomplete="list" aria-expanded={showSuggestions} aria-controls="payee-suggestions"
+              aria-activedescendant={showSuggestions && activePayeeIndex >= 0 && activePayeeIndex < filteredPayees.length ? `payee-option-${activePayeeIndex}` : undefined}
+              onChange={e => { setActivePayeeIndex(-1); setShowSuggestions(true); setData(d => ({ ...d, payTo: e.target.value })); }}
+              onFocus={() => { if (data.payTo.trim()) setShowSuggestions(true); }}
+              onKeyDown={e => {
+                if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && filteredPayees.length) {
+                  e.preventDefault();
+                  setShowSuggestions(true);
+                  setActivePayeeIndex(index => e.key === 'ArrowDown' ? (index + 1) % filteredPayees.length : (index <= 0 ? filteredPayees.length - 1 : index - 1));
+                } else if (e.key === 'Enter' && showSuggestions && activePayeeIndex >= 0 && filteredPayees[activePayeeIndex]) {
+                  e.preventDefault();
+                  setData(d => ({ ...d, payTo: filteredPayees[activePayeeIndex] }));
+                  setShowSuggestions(false);
+                  setActivePayeeIndex(-1);
+                } else if (e.key === 'Escape') {
+                  setShowSuggestions(false);
+                  setActivePayeeIndex(-1);
+                }
+              }}
+            />
 
             {showSuggestions && (
-              <div className={`custom-dropdown ${filteredPayees.length > 0 ? 'active' : 'active'}`}>
+              <div className="custom-dropdown active" id="payee-suggestions" role={filteredPayees.length ? 'listbox' : undefined} aria-label="Payee suggestions">
                 { payeesError ? (
                   <div className="dropdown-item" style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                    <div style={{color:'#b91c1c'}}>Unable to load payees</div>
-                    <button onMouseDown={() => setPayeesReloadKey(k => k + 1)}>Retry</button>
+                    <div style={{color:'var(--danger)'}}>Unable to load payees</div>
+                    <button onClick={() => setPayeesReloadKey(k => k + 1)}>Retry</button>
                   </div>
                 ) : !payeesLoaded ? (
                   <div className="dropdown-item loading">Loading payees…</div>
                 ) : livePayeesLoading && filteredPayees.length === 0 ? (
                   <div className="dropdown-item loading">Searching payees…</div>
                 ) : filteredPayees.length > 0 ? (
-                  filteredPayees.map(s => (
-                    <div key={s} onMouseDown={() => { setData(d => ({ ...d, payTo: s })); setShowSuggestions(false); }} className="dropdown-item">{s}</div>
+                  filteredPayees.map((s, index) => (
+                    <div key={s} id={`payee-option-${index}`} role="option" aria-selected={activePayeeIndex === index} onMouseDown={e => { e.preventDefault(); setData(d => ({ ...d, payTo: s })); setShowSuggestions(false); setActivePayeeIndex(-1); }} className={`dropdown-item ${activePayeeIndex === index ? 'highlighted' : ''}`}>{s}</div>
                   ))
                 ) : (
                   <div className="dropdown-item" style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                     <div style={{color:'var(--text-muted)'}}>&quot;{data.payTo}&quot; not found</div>
                     <div style={{display:'flex', gap:8}}>
-                      <button className="dropdown-add-btn" onMouseDown={() => { addPayee(data.payTo); setShowSuggestions(false); }}>Add</button>
-                      <button onMouseDown={() => setShowSuggestions(false)}>Cancel</button>
+                      <button className="dropdown-add-btn" onClick={() => { addPayee(data.payTo); setShowSuggestions(false); }}>Add</button>
+                      <button onClick={() => setShowSuggestions(false)}>Cancel</button>
                     </div>
                   </div>
                 )}
@@ -2138,10 +2246,10 @@ export default function App() {
 
           {/* Show last 3 cheques for this payee (between payee and amount) */}
           {recentCheques.length > 0 && (
-            <div style={{marginTop:8, marginBottom:8, background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:6, padding:8}}>
-              <div style={{fontSize:'0.95em', color:'#64748b', marginBottom:4}}>Last 3 cheques for this payee:</div>
+            <div className="recent-panel">
+              <div className="recent-heading"><Clock3 size={14} />Recent cheques for this payee</div>
               {recentCheques.map((c, i) => (
-                <div key={i} style={{display:'flex', justifyContent:'space-between', fontSize:'0.97em', marginBottom:2}}>
+                <div key={i} className="recent-row">
                   <span>Date: {c.date ? `${c.date.slice(0,2)}/${c.date.slice(2,4)}/${c.date.slice(4)}` : '--/--/----'}</span>
                   <span>₹{c.amount}</span>
                   <span>Chq: {c.chequeNo}</span>
@@ -2150,8 +2258,128 @@ export default function App() {
             </div>
           )}
 
-          <div style={{marginTop:8, marginBottom:8, background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:6, padding:10}}>
-            <label style={{display:'flex', alignItems:'center', gap:8, fontWeight:600}}>
+          <div className="input-wrapper">
+            <label className="input-label" htmlFor="inputAmount">Amount in rupees<span>REQUIRED</span></label>
+            <div className="amount-control"><span className="currency-prefix" aria-hidden="true">₹</span>
+            <input
+              className="input-box amount-input"
+              type="text"
+              inputMode="numeric"
+              pattern="\d*"
+              id="inputAmount"
+              aria-required="true"
+              aria-describedby={data.amountInWords ? 'amount-words-hint' : undefined}
+              placeholder="0"
+              value={data.amountInNumbers}
+              onChange={e => {
+                const cleaned = (e.target.value || '').replace(/[^0-9]/g, '');
+                setData(d => ({ ...d, amountInNumbers: cleaned, amountInWords: numberToWords(cleaned) }));
+              }}
+              onKeyDown={e => {
+                const allowed = ['Backspace','Delete','ArrowLeft','ArrowRight','Tab','Enter','Home','End'];
+                if (allowed.includes(e.key)) return;
+                if (e.ctrlKey || e.metaKey) return;
+                if (!/^[0-9]$/.test(e.key)) e.preventDefault();
+              }}
+              onPaste={e => {
+                const pasted = e.clipboardData?.getData('text') || '';
+                const cleaned = pasted.replace(/\D/g, '');
+                if (cleaned !== pasted) {
+                  e.preventDefault();
+                  const el = e.currentTarget as HTMLInputElement;
+                  const start = el.selectionStart || 0;
+                  const end = el.selectionEnd || 0;
+                  const newVal = el.value.slice(0, start) + cleaned + el.value.slice(end);
+                  setData(d => ({ ...d, amountInNumbers: newVal, amountInWords: numberToWords(newVal) }));
+                }
+              }}
+            />
+            </div>
+            <div className="quick-amounts"><span>Quick amount</span>{['5000', '10000', '25000'].map(amount => <button key={amount} type="button" disabled={!!bifurcateSession} onClick={() => setData(d => ({ ...d, amountInNumbers: amount, amountInWords: numberToWords(amount) }))}>₹{Number(amount).toLocaleString('en-IN')}</button>)}</div>
+            {data.amountInWords && <p className="amount-words-hint" id="amount-words-hint">{data.amountInWords}</p>}
+          </div>
+
+          <div className="field-grid">
+          {!bifurcateSession && (
+            <div className="input-wrapper">
+              <label className="input-label" htmlFor="inputChequeNo">Cheque number</label>
+              <input
+                className="input-box"
+                type="text"
+                inputMode="numeric"
+                pattern="\d*"
+                id="inputChequeNo"
+                placeholder="e.g. 000123"
+                value={data.chequeNo}
+                onChange={e => setData(d => ({ ...d, chequeNo: (e.target.value || '').replace(/\D/g, '') }))}
+              />
+            </div>
+          )}
+
+          <div
+            className="input-wrapper"
+            onKeyDown={e => { if (e.key === 'Escape') { setDatePickerOpen(false); e.stopPropagation(); } }}
+            onBlur={e => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                setDatePickerOpen(false);
+              }
+            }}
+          >
+            <label className="input-label" htmlFor="inputDate">Cheque date</label>
+            <input
+              className="input-box"
+              type="text"
+              id="inputDate"
+              readOnly
+              value={formatPreviewDate(data.date)}
+              aria-haspopup="dialog"
+              aria-expanded={datePickerOpen}
+              onFocus={openDatePicker}
+              onClick={openDatePicker}
+            />
+            {datePickerOpen && (
+              <div
+                className="date-picker-popover"
+                role="dialog"
+                aria-label="Choose cheque date"
+                onMouseDown={e => e.preventDefault()}
+              >
+                <div className="date-picker-header">
+                  <button type="button" onClick={() => moveDatePickerMonth(-1)} aria-label="Previous month">‹</button>
+                  <span>{datePickerMonth.toLocaleString('en-US', { month: 'short', year: 'numeric' })}</span>
+                  <button type="button" onClick={() => moveDatePickerMonth(1)} aria-label="Next month">›</button>
+                </div>
+                <div className="date-picker-weekdays">
+                  {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
+                    <span key={day}>{day}</span>
+                  ))}
+                </div>
+                <div className="date-picker-grid">
+                  {calendarDays.map(day => (
+                    <button
+                      key={dateToStoredValue(day.date)}
+                      type="button"
+                      className={[
+                        'date-picker-day',
+                        !day.inMonth ? 'muted' : '',
+                        day.isToday ? 'today' : '',
+                        day.isSelected ? 'selected' : '',
+                      ].filter(Boolean).join(' ')}
+                      aria-label={day.date.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      aria-pressed={day.isSelected}
+                      onClick={() => chooseDate(day.date)}
+                    >
+                      {day.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          </div>
+          <div className="split-panel">
+            <label className="split-toggle">
               <input
                 type="checkbox"
                 checked={bifurcateEnabled}
@@ -2164,26 +2392,26 @@ export default function App() {
                   }
                 }}
               />
-              Amount Bifurcation
+              <span>Split this amount<small className="split-description">Divide a payment across multiple cheques</small></span>
             </label>
             {bifurcateEnabled && (
-              <div style={{marginTop:8}}>
-                <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+              <div className="split-body">
+                <div className="split-controls">
                   <input
                     className="input-box"
                     type="text"
                     inputMode="numeric"
                     pattern="\d*"
                     placeholder="Total amount"
+                    aria-label="Total amount to split"
                     value={bifurcateTotal}
                     onChange={e => setBifurcateTotal((e.target.value || '').replace(/\D/g, ''))}
-                    style={{maxWidth:180}}
                   />
                   <select
                     className="input-box"
+                    aria-label="Number of split cheques"
                     value={String(bifurcateCount)}
                     onChange={e => setBifurcateCount(parseInt(e.target.value, 10) || 2)}
-                    style={{maxWidth:120}}
                   >
                     <option value="2">2 parts</option>
                     <option value="3">3 parts</option>
@@ -2235,7 +2463,7 @@ export default function App() {
                 </div>
                 {bifurcateSession && (
                   <div style={{marginTop:10}}>
-                    <div style={{fontSize:'0.9em', color:'#334155', marginBottom:8}}>
+                    <div className="split-progress">
                       Printed {bifurcateSession.printedCount} of {bifurcateSession.amounts.length}.
                       {' '}Current split amount: ₹{bifurcateSession.amounts[bifurcateSession.currentIndex] || '0'} /-
                     </div>
@@ -2270,124 +2498,28 @@ export default function App() {
             )}
           </div>
 
-          {!bifurcateSession && (
-            <div className="input-wrapper">
-              <label className="input-label">Cheque Number</label>
-              <input
-                className="input-box"
-                type="text"
-                inputMode="numeric"
-                pattern="\d*"
-                placeholder="Enter before printing"
-                value={data.chequeNo}
-                onChange={e => setData(d => ({ ...d, chequeNo: (e.target.value || '').replace(/\D/g, '') }))}
-              />
-            </div>
-          )}
+        </section>
 
-          <div className="input-wrapper">
-            <label className="input-label">Amount (₹)</label>
-            <input
-              className="input-box"
-              type="text"
-              inputMode="numeric"
-              pattern="\d*"
-              id="inputAmount"
-              placeholder="0.00"
-              value={data.amountInNumbers}
-              onChange={e => {
-                const cleaned = (e.target.value || '').replace(/[^0-9]/g, '');
-                setData(d => ({ ...d, amountInNumbers: cleaned, amountInWords: numberToWords(cleaned) }));
-              }}
-              onKeyDown={e => {
-                const allowed = ['Backspace','Delete','ArrowLeft','ArrowRight','Tab','Enter','Home','End'];
-                if (allowed.includes(e.key)) return;
-                if (e.ctrlKey || e.metaKey) return;
-                if (!/^[0-9]$/.test(e.key)) e.preventDefault();
-              }}
-              onPaste={e => {
-                const pasted = e.clipboardData?.getData('text') || '';
-                const cleaned = pasted.replace(/\D/g, '');
-                if (cleaned !== pasted) {
-                  e.preventDefault();
-                  const el = e.currentTarget as HTMLInputElement;
-                  const start = el.selectionStart || 0;
-                  const end = el.selectionEnd || 0;
-                  const newVal = el.value.slice(0, start) + cleaned + el.value.slice(end);
-                  setData(d => ({ ...d, amountInNumbers: newVal, amountInWords: numberToWords(newVal) }));
-                }
-              }}
-            />
-          </div>
-
-          <div
-            className="input-wrapper"
-            onBlur={e => {
-              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-                setDatePickerOpen(false);
-              }
-            }}
-          >
-            <label className="input-label">Date</label>
-            <input
-              className="input-box"
-              type="text"
-              id="inputDate"
-              readOnly
-              value={formatPreviewDate(data.date)}
-              onFocus={openDatePicker}
-              onClick={openDatePicker}
-            />
-            {datePickerOpen && (
-              <div
-                className="date-picker-popover"
-                onMouseDown={e => e.preventDefault()}
-              >
-                <div className="date-picker-header">
-                  <button type="button" onClick={() => moveDatePickerMonth(-1)} aria-label="Previous month">‹</button>
-                  <span>{datePickerMonth.toLocaleString('en-US', { month: 'short', year: 'numeric' })}</span>
-                  <button type="button" onClick={() => moveDatePickerMonth(1)} aria-label="Next month">›</button>
-                </div>
-                <div className="date-picker-weekdays">
-                  {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
-                    <span key={day}>{day}</span>
-                  ))}
-                </div>
-                <div className="date-picker-grid">
-                  {calendarDays.map(day => (
-                    <button
-                      key={dateToStoredValue(day.date)}
-                      type="button"
-                      className={[
-                        'date-picker-day',
-                        !day.inMonth ? 'muted' : '',
-                        day.isToday ? 'today' : '',
-                        day.isSelected ? 'selected' : '',
-                      ].filter(Boolean).join(' ')}
-                      onClick={() => chooseDate(day.date)}
-                    >
-                      {day.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="checkbox-wrapper" onClick={() => setData(d => ({ ...d, hidePayee: !d.hidePayee }))}>
+        <section className="card settings-card" id="print-settings" aria-labelledby="settings-heading">
+          <div className="section-header"><div className="section-title"><span className="section-icon"><Settings2 size={18} /></span><div><h2 id="settings-heading">Print preferences</h2><p>Make it yours. See the changes live.</p></div></div><span className="section-index">02</span></div>
+          <div className="toggle-grid">
+          <label className="checkbox-wrapper" htmlFor="togglePrintName">
             <input type="checkbox" id="togglePrintName" checked={!data.hidePayee} onChange={e => setData(d => ({ ...d, hidePayee: !e.target.checked }))} />
-            <span className="checkbox-text">Print Payee Name on Cheque?</span>
-          </div>
+            <span className="checkbox-text">Print payee name<small>Include the recipient on the cheque</small></span><span className="toggle-track" aria-hidden="true"></span>
+          </label>
 
-          <div className="checkbox-wrapper" onClick={() => setData(d => ({ ...d, crossCheque: !d.crossCheque }))}>
+          <label className="checkbox-wrapper" htmlFor="toggleCrossCheque">
             <input type="checkbox" id="toggleCrossCheque" checked={!!data.crossCheque} onChange={e => setData(d => ({ ...d, crossCheque: e.target.checked }))} />
-            <span className="checkbox-text">Cross Cheque?</span>
+            <span className="checkbox-text">Cross cheque<small>Add two crossing lines</small></span><span className="toggle-track" aria-hidden="true"></span>
+          </label>
           </div>
+          <div className="field-grid">
 
           <div className="input-wrapper">
-            <label className="input-label">Print Font</label>
+            <label className="input-label" htmlFor="inputPrintFont">Typeface</label>
             <select
               className="input-box"
+              id="inputPrintFont"
               value={selectedPrintFont}
               onChange={e => setData(d => ({ ...d, printFont: e.target.value as PrintFontKey }))}
             >
@@ -2398,9 +2530,10 @@ export default function App() {
           </div>
 
           <div className="input-wrapper">
-            <label className="input-label">Ink Color</label>
+            <label className="input-label" htmlFor="inputInkColor">Ink colour</label>
             <select
               className="input-box"
+              id="inputInkColor"
               value={selectedInkColor}
               onChange={e => setData(d => ({ ...d, inkColor: e.target.value as InkColorKey }))}
             >
@@ -2409,71 +2542,67 @@ export default function App() {
               ))}
             </select>
           </div>
+          </div>
+          <div className="settings-footnote"><ShieldCheck size={14} />These preferences apply to your next print.</div>
+        </section>
         </div>
 
         <div className="preview-column">
-          <div className="card preview-card">
-            <span className="card-header" style={{marginBottom:10, color:'var(--primary)'}}>Live Preview</span>
-            {data.crossCheque && (
-              <div className="preview-cross-cheque" aria-hidden="true">
-                <span></span>
-                <span></span>
-              </div>
-            )}
-
-            <div className="preview-row">
-              <div>
-                <div className="p-label">Date</div>
-                <div className="p-value" id="prevDate" style={livePreviewTextStyle}>{formatPreviewDate(data.date)}</div>
-              </div>
-              <div style={{textAlign:'right'}}>
-                <div className="p-label">Amount</div>
-                <div className="p-value-lg" id="prevAmountNum" style={livePreviewTextStyle}>₹ {data.amountInNumbers ? Number(data.amountInNumbers).toLocaleString('en-IN') + '/-' : '0/-'}</div>
+          <section className="card preview-panel" aria-labelledby="preview-heading">
+            <div className="preview-heading"><div className="section-title"><span className="section-icon"><Radio size={18} /></span><h2 id="preview-heading">Live preview</h2></div><span className="live-badge"><span className="status-dot"></span>LIVE</span></div>
+            <div className="preview-stage">
+              <div className="cheque-paper" style={printStyleVars}>
+                <div className="paper-topline"><span>RED LANTERN RESTAURANT</span><span>PAYMENT CHEQUE</span></div>
+                <div className="paper-bank"><span className="paper-bank-symbol">B</span><div><strong>Bank of Baroda</strong><small>{data.branch}</small></div><span className="paper-watermark" aria-hidden="true">RL</span></div>
+                {data.crossCheque && <div className="preview-cross-cheque" aria-hidden="true"><span></span><span></span></div>}
+                <div className="preview-row">
+                  <div><div className="p-label">Cheque date</div><div className="p-value" id="prevDate" style={livePreviewTextStyle}>{formatPreviewDate(data.date)}</div></div>
+                  <div className="paper-amount"><div className="p-label">Amount</div><div className="p-value-lg" id="prevAmountNum" style={livePreviewTextStyle}>₹ {data.amountInNumbers ? Number(data.amountInNumbers).toLocaleString('en-IN') + '/-' : '0/-'}</div></div>
+                </div>
+                <div className="paper-payee"><div className="p-label">Pay to</div><div className="p-value" id="prevPayee" style={livePreviewTextStyle}>{data.hidePayee ? 'Payee name hidden' : data.payTo || 'Recipient name'}</div></div>
+                <div className="paper-words"><div className="p-label">Rupees in words</div><div className="p-words" id="prevWords" style={livePreviewTextStyle}>{data.amountInWords || 'Zero Rupees Only'}</div></div>
+                <div className="paper-footer"><div><span className="p-label">Account</span><span className="paper-account">•••• {data.accountNumber.slice(-4)}</span></div><div className="paper-signature"><span>{data.payeeName}</span><small>Authorised signatory</small></div></div>
+                <div className="paper-micr"><span>{data.chequeNo || '000000'}</span><span>204 × 95 mm</span><span>{data.ifscCode}</span></div>
               </div>
             </div>
+            <div className="preview-caption"><span><ShieldCheck size={14} />{data.crossCheque ? 'Crossed cheque' : 'Standard cheque'}</span><span>{FONT_OPTIONS[selectedPrintFont].label} · {INK_COLOR_OPTIONS[selectedInkColor].label.replace(' (CTS)', '')}</span></div>
+            <div className="readiness-strip"><span className={data.payTo.trim() && Number(data.amountInNumbers) > 0 && data.chequeNo ? 'ready-status complete' : 'ready-status'}><span className="status-dot"></span>{data.payTo.trim() && Number(data.amountInNumbers) > 0 && data.chequeNo ? 'Ready to print' : 'Your cheque is taking shape'}</span><span className="readiness-count">{[!!data.payTo.trim(), Number(data.amountInNumbers) > 0, !!data.chequeNo].filter(Boolean).length}/3 details</span></div>
+            <div className="readiness-checks">{[{ label: 'Payee', done: !!data.payTo.trim() }, { label: 'Amount', done: Number(data.amountInNumbers) > 0 }, { label: 'Cheque no.', done: !!data.chequeNo }].map(item => <span key={item.label} className={item.done ? 'done' : ''}><span>{item.done ? <Check size={10} /> : null}</span>{item.label}</span>)}</div>
+          </section>
 
-            <div style={{marginBottom:12}}>
-              <div className="p-label">Pay To</div>
-              <div className="p-value" id="prevPayee" style={{...livePreviewTextStyle, fontSize:'1rem', opacity: data.hidePayee ? 0.4 : 1}}>{data.payTo || 'Start typing...'}</div>
-            </div>
-
-            <div>
-              <div className="p-label">Sum of</div>
-              <div className="p-words" id="prevWords" style={livePreviewTextStyle}>{data.amountInWords || 'Zero Rupees Only'}</div>
-            </div>
-          </div>
-
-          <div className="card due-payments-card">
+          <section className="card due-payments-card" id="payment-watch" aria-labelledby="payments-heading">
             <div className="due-card-header">
-              <span className="card-header">Payment Watch</span>
-              <span className="due-range">{duePaymentSections.weekRange}</span>
+              <div className="section-title"><span className="section-icon"><Wallet size={18} /></span><div><h2 id="payments-heading">Payment watch</h2><p>Your next payments, at a glance.</p></div></div><button className="icon-button" aria-label="Open payment history" onClick={() => setHistoryOpen(true)}><ArrowUpRight size={17} /></button>
             </div>
+            <div className="due-range"><CalendarDays size={13} />{duePaymentSections.weekRange}</div>
             <div className="due-section">
               <div className="due-section-heading">
                 <div className="due-section-title">Due This Week</div>
                 <div className="due-section-total">₹{duePaymentSections.thisWeekTotal.toLocaleString('en-IN')}</div>
               </div>
-              {renderDuePaymentList(duePaymentSections.thisWeek, historyLoading ? 'Loading due cheques...' : 'No cheques due this week.')}
+              {renderDuePaymentList(duePaymentSections.thisWeek, historyLoading ? 'Loading due cheques…' : historyError ? 'Open history to retry loading payments.' : 'No cheques due this week.')}
             </div>
             <details className="due-section due-upcoming">
               <summary className="due-section-heading">
                 <span className="due-section-title">Upcoming Payments</span>
                 <span className="due-section-total">₹{duePaymentSections.upcomingTotal.toLocaleString('en-IN')}</span>
               </summary>
-              {renderDuePaymentList(duePaymentSections.upcoming, historyLoading ? 'Loading upcoming cheques...' : 'No upcoming cheques found.')}
+              {renderDuePaymentList(duePaymentSections.upcoming, historyLoading ? 'Loading upcoming cheques…' : historyError ? 'Open history to retry loading payments.' : 'No upcoming cheques found.')}
             </details>
-          </div>
+            <p className="watch-footnote">Based on loaded cheque history · upcoming shows the next 8.</p>
+          </section>
+          <div className="studio-note"><Sparkles size={16} /><span>Small details. Seamless payments.</span><span>RED LANTERN STUDIO</span></div>
         </div>
-      </div>
+      </main>
 
       <div className="bottom-dock">
-        <button className="dock-btn btn-history" onClick={() => setHistoryOpen(true)} aria-label="History">
+        <button className="dock-btn btn-history" onClick={() => { setAdminOpen(false); setHistoryOpen(true); }} aria-label="History" title="Print history">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" xmlns="http://www.w3.org/2000/svg">
             <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path>
           </svg>
         </button>
 
-        <button className="dock-btn btn-admin" onClick={() => setAdminOpen(v => !v)} aria-label="Admin" title="Admin">
+        <button className="dock-btn btn-admin" onClick={() => { setHistoryOpen(false); setAdminOpen(v => !v); }} aria-label="Data and sync" title="Admin">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" xmlns="http://www.w3.org/2000/svg">
             <path d="M3 7h18M3 12h18M3 17h18"></path>
           </svg>
@@ -2489,16 +2618,16 @@ export default function App() {
             <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9l7 7v9a2 2 0 0 1-2 2z"></path>
             <path d="M17 21v-8H7v8"></path>
           </svg>
-          SAVE
+          <span>Save</span>
         </button>
 
         {batchMode ? (
-          <button className="dock-btn btn-print" onClick={handleAddToBatch} aria-label="Add to Batch" style={{background: '#10b981', color: 'white'}}>
+          <button className="dock-btn btn-print" onClick={handleAddToBatch} aria-label="Add to Batch">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" xmlns="http://www.w3.org/2000/svg">
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
-            ADD TO BATCH
+            Add to batch
           </button>
         ) : (
           <button className="dock-btn btn-print" onClick={handlePrint} aria-label="Print">
@@ -2507,13 +2636,13 @@ export default function App() {
               <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
               <rect x="6" y="14" width="12" height="8"></rect>
             </svg>
-            PRINT
+            Print cheque
           </button>
         )}
 
         {!batchMode && (
           <button className="dock-btn btn-pdf" onClick={exportPdfAndShare} aria-label="Share PDF" title="Share PDF">
-            PDF
+            <FileText size={17} /><span>PDF</span>
           </button>
         )}
 
@@ -2593,7 +2722,7 @@ export default function App() {
             setData(d => ({ ...d, chequeNo: chq }));
           }
 
-        }} aria-label="WhatsApp">
+        }} aria-label="WhatsApp" title="Share on WhatsApp">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
             <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.008-.57-.008-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
           </svg>
@@ -2601,32 +2730,37 @@ export default function App() {
       </div>
 
       <div className={`history-overlay ${historyOpen ? 'active' : ''}`} onClick={() => setHistoryOpen(false)}></div>
-      <div className={`history-drawer ${historyOpen ? 'active' : ''}`}>
+      <div ref={historyDialogRef} className={`history-drawer ${historyOpen ? 'active' : ''}`} role="dialog" aria-modal={historyOpen || undefined} aria-labelledby="history-heading" aria-hidden={!historyOpen} inert={!historyOpen}>
         <div className="drawer-header">
-          <span className="drawer-title">Print History</span>
-          <button onClick={() => setHistoryOpen(false)} style={{background:'none', border:'none', fontSize:'1.5rem', cursor:'pointer'}}>&times;</button>
+          <div><Clock3 size={20} /><h2 className="drawer-title" id="history-heading">Print history</h2></div>
+          <button className="icon-button" aria-label="Close print history" onClick={() => setHistoryOpen(false)}><X size={20} /></button>
         </div>
         <div className="history-filters">
           <input
             className="history-input"
             type="text"
             placeholder="Search by name or cheque number"
+            aria-label="Search history by payee or cheque number"
             value={historySearchInput}
             onChange={e => setHistorySearchInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { setHistorySearch(historySearchInput.trim()); setHistoryFrom(historyFromInput); setHistoryTo(historyToInput); } }}
           />
           <div className="history-filter-row">
+            <label><span>From date</span>
             <input
               className="history-input"
               type="date"
               value={historyFromInput}
               onChange={e => setHistoryFromInput(e.target.value)}
             />
+            </label><label><span>To date</span>
             <input
               className="history-input"
               type="date"
               value={historyToInput}
               onChange={e => setHistoryToInput(e.target.value)}
             />
+            </label>
           </div>
           <div className="history-actions">
             <button
@@ -2702,11 +2836,11 @@ export default function App() {
         </div>
         <div className="history-list">
           {historyError ? (
-            <div style={{textAlign:'center', padding:20, color:'#b91c1c'}}>{historyError}</div>
+            <div className="drawer-empty error"><ClipboardList size={28} /><strong>History could not be loaded</strong><p>{historyError}</p><button className="history-btn ghost" onClick={() => loadHistoryPage({ reset: true })}>Try again</button></div>
           ) : historyLoading && historyRecords.length === 0 ? (
-            <div style={{textAlign:'center', padding:20, color:'#aaa'}}>Loading history…</div>
+            <div className="drawer-empty"><Clock3 size={28} /><strong>Loading your cheques…</strong></div>
           ) : filteredHistory.length === 0 ? (
-            <div style={{textAlign:'center', padding:20, color:'#aaa'}}>No records found</div>
+            <div className="drawer-empty"><ClipboardList size={28} /><strong>No cheques found</strong><p>Your saved cheques appear here. Try adjusting the search or date range.</p></div>
           ) : (
             filteredHistory.map(r => {
               const issued = r.issuedDay || storedDateToDay(r.date || '');
@@ -2756,25 +2890,26 @@ export default function App() {
       </div>
 
       <div className={`history-overlay ${adminOpen ? 'active' : ''}`} onClick={() => setAdminOpen(false)}></div>
-      <div className={`history-drawer ${adminOpen ? 'active' : ''}`} style={{height:'60vh'}}>
+      <div ref={adminDialogRef} className={`history-drawer admin-drawer ${adminOpen ? 'active' : ''}`} role="dialog" aria-modal={adminOpen || undefined} aria-labelledby="admin-heading" aria-hidden={!adminOpen} inert={!adminOpen}>
         <div className="drawer-header">
-          <span className="drawer-title">Admin - Pending & Remote</span>
+          <div><ShieldCheck size={20} /><h2 className="drawer-title" id="admin-heading">Data & sync</h2></div>
           <div style={{display:'flex', gap:8}}>
-            <button onClick={loadAdminRecent}>Refresh</button>
-            <button onClick={() => setAdminOpen(false)} style={{background:'none', border:'none', fontSize:'1.5rem', cursor:'pointer'}}>&times;</button>
+            <button onClick={loadAdminRecent} disabled={adminLoading}><RotateCcw size={14} />Refresh</button>
+            <button className="icon-button" aria-label="Close data and sync" onClick={() => setAdminOpen(false)}><X size={20} /></button>
           </div>
         </div>
-        <div style={{padding:16}}>
+        <div className="admin-content">
           {dbStatus && (
-            <div style={{ padding: '8px 12px', marginBottom: 16, borderRadius: 6, backgroundColor: dbStatus.ok ? '#dcfce7' : '#fee2e2', color: dbStatus.ok ? '#166534' : '#991b1b', fontSize: '0.9rem' }}>
-              {dbStatus.ok ? `✅ ${dbStatus.msg || 'Database is operational'}` : `❌ ${dbStatus.msg || 'Database error'}`}
+            <div className={`admin-status ${dbStatus.ok ? 'ok' : 'error'}`} role="status">
+              {dbStatus.ok ? <ShieldCheck size={16} /> : <WifiOff size={16} />}{dbStatus.msg || (dbStatus.ok ? 'Database is operational' : 'Database error')}
             </div>
           )}
-          <div style={{display:'flex', gap:8, marginBottom:12}}>
+          <div className="admin-search">
             <input
               className="history-input"
               type="text"
-              placeholder="Search exact payee in remote DB (e.g. afsha)"
+              placeholder="Enter an exact payee name"
+              aria-label="Search remote records by exact payee name"
               value={adminSearchName}
               onChange={e => setAdminSearchName(e.target.value)}
               onKeyDown={e => {
@@ -2785,22 +2920,22 @@ export default function App() {
               {adminLookupLoading ? 'Searching...' : 'Find Payee'}
             </button>
           </div>
-          <div style={{marginBottom:12}}><strong>Pending (local)</strong></div>
+          <div className="admin-section-heading"><Layers3 size={16} /><strong>Local queue</strong><span>{pendingQueue.length} pending</span></div>
           {pendingQueue.length === 0 ? (
-            <div style={{color:'#888', padding:12}}>No pending items</div>
+            <div className="drawer-empty compact"><CheckCheck size={25} /><strong>Your queue is clear</strong><p>Cheques saved offline wait here until they can sync.</p></div>
           ) : pendingQueue.map(p => (
-            <div key={p.id} style={{padding:10, borderBottom:'1px solid #f1f5f9'}}>
+            <div key={p.id} className="admin-record">
               <div style={{fontWeight:700}}>{p.payTo} — ₹{p.amountInNumbers}</div>
-              <div style={{fontSize:'0.9rem', color:'#555'}}>Date: {p.date} • Chq: {p.chequeNo}</div>
+              <div className="admin-record-meta">{formatPreviewDate(p.date || '')} • Chq: {p.chequeNo}</div>
             </div>
           ))}
 
-          <div style={{marginTop:18}}><strong>Firestore (remote)</strong></div>
-          {adminLoading ? <div style={{color:'#888', padding:12}}>Loading...</div> : (
-            adminDocs.length === 0 ? <div style={{color:'#888', padding:12}}>No remote documents loaded</div> : adminDocs.map(d => (
-              <div key={d.id} style={{padding:10, borderBottom:'1px solid #f1f5f9'}}>
+          <div className="admin-section-heading"><ShieldCheck size={16} /><strong>Cloud records</strong><span>{adminDocs.length} loaded</span></div>
+          {adminLoading ? <div className="drawer-empty compact"><strong>Loading cloud records…</strong></div> : (
+            adminDocs.length === 0 ? <div className="drawer-empty compact"><FileText size={25} /><strong>No cloud records loaded</strong><p>Refresh or search for a payee to view saved cheques.</p></div> : adminDocs.map(d => (
+              <div key={d.id} className="admin-record">
                 <div style={{fontWeight:700}}>{d.payTo} — ₹{d.amountInNumbers}</div>
-                <div style={{fontSize:'0.9rem', color:'#555'}}>Date: {d.date} • Chq: {d.chequeNo}</div>
+                <div className="admin-record-meta">{formatPreviewDate(d.date || '')} • Chq: {d.chequeNo}</div>
               </div>
             ))
           )}
