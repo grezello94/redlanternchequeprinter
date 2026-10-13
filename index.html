@@ -7,6 +7,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f4f7fc" />
     <meta name="description" content="Red Lantern Payment Studio — create, preview, print, and manage your cheques in one workspace." />
+    <script>
+      try {
+        const saved = localStorage.getItem('red-lantern-theme');
+        document.documentElement.dataset.theme = saved === 'light' || saved === 'dark'
+          ? saved : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      } catch { document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+    </script>
     <title>Red Lantern · Payment Studio</title>
   </head>
   <body>

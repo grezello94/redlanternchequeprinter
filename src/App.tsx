@@ -4,7 +4,7 @@ import jsPDF from 'jspdf';
 import { db, repairIndexedDbPersistence } from './firebase';
 import { collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs, where, startAt, endAt, startAfter, writeBatch, onSnapshot, doc, runTransaction } from 'firebase/firestore';
 import type { ChequeData } from './types';
-import { ArrowDownLeft, ArrowUpRight, CalendarDays, Check, CheckCheck, ChevronRight, CircleHelp, ClipboardList, Clock3, FileText, Layers3, LayoutDashboard, Radio, RotateCcw, Settings2, ShieldCheck, Sparkles, Wallet, Wifi, WifiOff, X } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, CalendarDays, Check, CheckCheck, ChevronRight, CircleHelp, ClipboardList, Clock3, FileText, Layers3, LayoutDashboard, Moon, Sun, Radio, RotateCcw, Settings2, ShieldCheck, Sparkles, Wallet, Wifi, WifiOff, X } from 'lucide-react';
 // print components are not directly imported here; we use print container markup
 
 const FONT_OPTIONS = {
@@ -44,6 +44,20 @@ const DEFAULT_INK_COLOR: InkColorKey = 'navyBlue';
 type HistoryRecord = { key: string; chequeNo?: string; amount?: string; date?: string; payTo?: string; issuedDay?: string; issuedAt?: string };
 
 export default function App() {
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      const saved = localStorage.getItem('red-lantern-theme');
+      if (saved === 'light' || saved === 'dark') return saved;
+    } catch { /* Use system preference when storage is unavailable. */ }
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#101827' : '#f4f7fc');
+    try { localStorage.setItem('red-lantern-theme', theme); } catch { /* Theme still works without storage. */ }
+  }, [theme]);
+
   const [data, setData] = useState<ChequeData>({
     date: new Date().toLocaleDateString('en-GB').replace(/\//g, ''),
     payTo: '',
@@ -2057,7 +2071,7 @@ export default function App() {
       <header className="topbar">
         <div className="mobile-brand"><span className="brand-mark"><span></span><span></span><span></span></span><strong>RED LANTERN<span className="brand-period">.</span></strong></div>
         <div className="breadcrumb">Workspace <ChevronRight size={14} /><span>Cheque studio</span></div>
-        <div className="topbar-meta"><span className={`online-pill ${isOnline ? '' : 'offline'}`}><span className="status-dot"></span>{isOnline ? 'Online' : 'Offline'}</span><button className="mobile-help icon-button" onClick={() => setShowPrintSetup(v => !v)} aria-label="Print setup help"><CircleHelp size={18} /></button><span className="topbar-date"><CalendarDays size={15} />{new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span><span className="topbar-avatar">RL</span></div>
+        <div className="topbar-meta"><button type="button" className="theme-toggle" onClick={() => setTheme(current => current === 'light' ? 'dark' : 'light')} aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`} title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>{theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}<span>{theme === 'light' ? 'Dark mode' : 'Light mode'}</span></button><span className={`online-pill ${isOnline ? '' : 'offline'}`}><span className="status-dot"></span>{isOnline ? 'Online' : 'Offline'}</span><button className="mobile-help icon-button" onClick={() => setShowPrintSetup(v => !v)} aria-label="Print setup help"><CircleHelp size={18} /></button><span className="topbar-date"><CalendarDays size={15} />{new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span><span className="topbar-avatar">RL</span></div>
       </header>
 
       <div className="page-heading" id="workspace">
@@ -2367,6 +2381,7 @@ export default function App() {
                       ].filter(Boolean).join(' ')}
                       aria-label={day.date.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
                       aria-pressed={day.isSelected}
+                      aria-current={day.isToday ? 'date' : undefined}
                       onClick={() => chooseDate(day.date)}
                     >
                       {day.label}
