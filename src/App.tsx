@@ -4,7 +4,7 @@ import jsPDF from 'jspdf';
 import { db, repairIndexedDbPersistence } from './firebase';
 import { collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs, where, startAt, endAt, startAfter, writeBatch, onSnapshot, doc, runTransaction } from 'firebase/firestore';
 import type { ChequeData } from './types';
-import { ArrowDownLeft, ArrowUpRight, CalendarDays, Check, CheckCheck, ChevronRight, CircleHelp, ClipboardList, Clock3, FileText, Layers3, LayoutDashboard, Moon, Sun, Radio, RotateCcw, Settings2, ShieldCheck, Sparkles, Wallet, Wifi, WifiOff, X } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, CalendarDays, Check, CheckCheck, ChevronDown, ChevronRight, CircleHelp, ClipboardList, Clock3, FileText, Layers3, LayoutDashboard, Moon, Sun, PanelLeftClose, PanelLeftOpen, Radio, RotateCcw, Settings2, ShieldCheck, Sparkles, Wallet, Wifi, WifiOff, X } from 'lucide-react';
 // print components are not directly imported here; we use print container markup
 
 const FONT_OPTIONS = {
@@ -58,6 +58,18 @@ export default function App() {
     try { localStorage.setItem('red-lantern-theme', theme); } catch { /* Theme still works without storage. */ }
   }, [theme]);
 
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem('red-lantern-sidebar-collapsed') === 'true'; } catch { return false; }
+  });
+  const [paymentWatchOpen, setPaymentWatchOpen] = useState(false);
+  useEffect(() => {
+    try { localStorage.setItem('red-lantern-sidebar-collapsed', String(sidebarCollapsed)); } catch { /* Layout still works without storage. */ }
+  }, [sidebarCollapsed]);
+  const openPaymentWatch = () => {
+    setPaymentWatchOpen(true);
+    requestAnimationFrame(() => document.getElementById('payment-watch')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
+
   const [data, setData] = useState<ChequeData>({
     date: new Date().toLocaleDateString('en-GB').replace(/\//g, ''),
     payTo: '',
@@ -69,7 +81,7 @@ export default function App() {
     payeeName: 'FOR RED LANTERN RESTAURANT',
     chequeNo: '',
     hidePayee: false,
-    crossCheque: false,
+    crossCheque: true,
     printFont: DEFAULT_PRINT_FONT,
     inkColor: DEFAULT_INK_COLOR,
   });
@@ -2040,9 +2052,9 @@ export default function App() {
   };
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <a className="skip-link" href="#workspace">Skip to workspace</a>
-      <aside className="sidebar" aria-label="Main navigation">
+      <aside className="sidebar" id="main-sidebar" aria-label="Main navigation" hidden={sidebarCollapsed}>
         <a className="brand" href="#workspace" aria-label="Red Lantern home">
           <span className="brand-mark"><span></span><span></span><span></span></span>
           <span className="brand-copy"><strong>RED LANTERN<span className="brand-period">.</span></strong><small>PAYMENT STUDIO</small></span>
@@ -2051,7 +2063,7 @@ export default function App() {
         <nav className="side-nav">
           <button className={`nav-item ${!historyOpen && !adminOpen ? 'active' : ''}`} onClick={() => { setHistoryOpen(false); setAdminOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><LayoutDashboard size={19} /><span>Cheque studio</span><span className="nav-active-dot"></span></button>
           <button className={`nav-item ${historyOpen ? 'active' : ''}`} onClick={() => { setAdminOpen(false); setHistoryOpen(true); }}><Clock3 size={19} /><span>Print history</span><span className="nav-count">{historyRecords.length}</span></button>
-          <button className="nav-item" onClick={() => document.getElementById('payment-watch')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}><Wallet size={19} /><span>Payment watch</span></button>
+          <button className="nav-item" onClick={openPaymentWatch}><Wallet size={19} /><span>Payment watch</span></button>
         </nav>
         <div className="nav-caption tools-caption">TOOLS</div>
         <nav className="side-nav" aria-label="Tools">
@@ -2070,7 +2082,7 @@ export default function App() {
       </aside>
       <header className="topbar">
         <div className="mobile-brand"><span className="brand-mark"><span></span><span></span><span></span></span><strong>RED LANTERN<span className="brand-period">.</span></strong></div>
-        <div className="breadcrumb">Workspace <ChevronRight size={14} /><span>Cheque studio</span></div>
+        <div className="topbar-navigation"><button type="button" className="sidebar-toggle theme-toggle" onClick={() => setSidebarCollapsed(value => !value)} aria-expanded={!sidebarCollapsed} aria-controls="main-sidebar" aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'} title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}>{sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button><div className="breadcrumb">Workspace <ChevronRight size={14} /><span>Cheque studio</span></div></div>
         <div className="topbar-meta"><button type="button" className="theme-toggle" onClick={() => setTheme(current => current === 'light' ? 'dark' : 'light')} aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`} title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>{theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}<span>{theme === 'light' ? 'Dark mode' : 'Light mode'}</span></button><span className={`online-pill ${isOnline ? '' : 'offline'}`}><span className="status-dot"></span>{isOnline ? 'Online' : 'Offline'}</span><button className="mobile-help icon-button" onClick={() => setShowPrintSetup(v => !v)} aria-label="Print setup help"><CircleHelp size={18} /></button><span className="topbar-date"><CalendarDays size={15} />{new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span><span className="topbar-avatar">RL</span></div>
       </header>
 
@@ -2145,7 +2157,7 @@ export default function App() {
 
           <div className="mode-switch" aria-label="Cheque mode">
             <button
-              className={!batchMode ? 'selected' : ''}
+              className={`single-mode ${!batchMode ? 'selected' : ''}`}
               aria-pressed={!batchMode}
               onClick={() => {
                 setBatchMode(false);
@@ -2155,7 +2167,7 @@ export default function App() {
               <FileText size={15} />Single cheque
             </button>
             <button
-              className={batchMode ? 'selected' : ''}
+              className={`batch-mode ${batchMode ? 'selected' : ''}`}
               aria-pressed={batchMode}
               onClick={() => {
                 setBatchMode(true);
@@ -2586,9 +2598,10 @@ export default function App() {
           </section>
 
           <section className="card due-payments-card" id="payment-watch" aria-labelledby="payments-heading">
-            <div className="due-card-header">
-              <div className="section-title"><span className="section-icon"><Wallet size={18} /></span><div><h2 id="payments-heading">Payment watch</h2><p>Your next payments, at a glance.</p></div></div><button className="icon-button" aria-label="Open payment history" onClick={() => setHistoryOpen(true)}><ArrowUpRight size={17} /></button>
-            </div>
+            <h2 className="payment-watch-heading" id="payments-heading"><button type="button" className="due-card-header payment-watch-toggle" aria-expanded={paymentWatchOpen} aria-controls="payment-watch-content" onClick={() => setPaymentWatchOpen(value => !value)}>
+              <span className="section-title"><span className="section-icon"><Wallet size={18} /></span><span><span className="payment-watch-title">Payment watch</span><span className="payment-watch-hint">{paymentWatchOpen ? 'Your next payments, at a glance.' : 'View due and upcoming cheques'}</span></span></span><ChevronDown size={20} className={paymentWatchOpen ? 'expanded' : ''} />
+            </button></h2>
+            <div id="payment-watch-content" hidden={!paymentWatchOpen}>
             <div className="due-range"><CalendarDays size={13} />{duePaymentSections.weekRange}</div>
             <div className="due-section">
               <div className="due-section-heading">
@@ -2605,6 +2618,7 @@ export default function App() {
               {renderDuePaymentList(duePaymentSections.upcoming, historyLoading ? 'Loading upcoming cheques…' : historyError ? 'Open history to retry loading payments.' : 'No upcoming cheques found.')}
             </details>
             <p className="watch-footnote">Based on loaded cheque history · upcoming shows the next 8.</p>
+            </div>
           </section>
           <div className="studio-note"><Sparkles size={16} /><span>Small details. Seamless payments.</span><span>RED LANTERN STUDIO</span></div>
         </div>
