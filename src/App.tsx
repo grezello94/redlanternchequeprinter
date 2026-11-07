@@ -4,7 +4,7 @@ import jsPDF from 'jspdf';
 import { db, repairIndexedDbPersistence } from './firebase';
 import { collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs, where, startAt, endAt, startAfter, writeBatch, onSnapshot, doc, runTransaction } from 'firebase/firestore';
 import type { ChequeData } from './types';
-import { ArrowDownLeft, ArrowUpRight, CalendarDays, Check, CheckCheck, ChevronDown, ChevronRight, CircleHelp, ClipboardList, Clock3, FileText, Layers3, LayoutDashboard, Moon, Sun, PanelLeftClose, PanelLeftOpen, Radio, RotateCcw, Settings2, ShieldCheck, Sparkles, Wallet, Wifi, WifiOff, X } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, CalendarDays, Check, CheckCheck, ChevronDown, ChevronRight, CircleHelp, ClipboardList, Clock3, FileText, Hash, Layers3, LayoutDashboard, ListOrdered, Moon, Sun, PanelLeftClose, PanelLeftOpen, Radio, RotateCcw, Settings2, ShieldCheck, Sparkles, Wallet, Wifi, WifiOff, X } from 'lucide-react';
 // print components are not directly imported here; we use print container markup
 
 const FONT_OPTIONS = {
@@ -139,6 +139,9 @@ export default function App() {
   const [bifurcateEnabled, setBifurcateEnabled] = useState(false);
   const [bifurcateCount, setBifurcateCount] = useState(2);
   const [bifurcateTotal, setBifurcateTotal] = useState('');
+  const [splitNumberingMode, setSplitNumberingMode] = useState<'range' | 'individual'>('range');
+  const [splitStartCheque, setSplitStartCheque] = useState('');
+  const [splitEndCheque, setSplitEndCheque] = useState('');
   const [bifurcateSession, setBifurcateSession] = useState<{
     amounts: string[];
     chequeNos: string[];
@@ -1166,18 +1169,112 @@ export default function App() {
     }
   };
 
+  const generateChequeRange = (startStr: string, count: number): string[] => {
+    const cleaned = (startStr || '').trim().replace(/\D/g, '');
+    if (!cleaned || count <= 0) return [];
+    const minLength = cleaned.length;
+    const startNum = parseInt(cleaned, 10);
+    if (isNaN(startNum)) return [];
+    const result: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const nextNum = startNum + i;
+      result.push(String(nextNum).padStart(Math.max(minLength, String(nextNum).length), '0'));
+    }
+    return result;
+  };
+
+  const calculateEndChequeNo = (startStr: string, count: number): string => {
+    const cleaned = (startStr || '').trim().replace(/\D/g, '');
+    if (!cleaned || count <= 0) return '';
+    const startNum = parseInt(cleaned, 10);
+    if (isNaN(startNum)) return '';
+    const endNum = startNum + count - 1;
+    return String(endNum).padStart(Math.max(cleaned.length, String(endNum).length), '0');
+  };
+
+  const calculateStartChequeNo = (endStr: string, count: number): string => {
+    const cleaned = (endStr || '').trim().replace(/\D/g, '');
+    if (!cleaned || count <= 0) return '';
+    const endNum = parseInt(cleaned, 10);
+    if (isNaN(endNum)) return '';
+    const startNum = Math.max(0, endNum - count + 1);
+    return String(startNum).padStart(Math.max(cleaned.length, String(endNum).length), '0');
+  };
+
+  const parseChequeRangeInput = (input: string, expectedCount: number): string[] | null => {
+    const parts = (input || '').split(/[-–—to\s]+/).filter(Boolean).map(p => p.replace(/\D/g, '')).filter(Boolean);
+    if (parts.length === 2) {
+      const startStr = parts[0];
+      const endStr = parts[1];
+      const startNum = parseInt(startStr, 10);
+      const endNum = parseInt(endStr, 10);
+      if (!isNaN(startNum) && !isNaN(endNum) && endNum >= startNum) {
+        const total = endNum - startNum + 1;
+        if (expectedCount > 0 && total !== expectedCount) {
+          alert(`Cheque range contains ${total} cheques, but ${expectedCount} are required.`);
+          return null;
+        }
+        const padLen = Math.max(startStr.length, endStr.length);
+        const generated: string[] = [];
+        for (let n = startNum; n <= endNum; n++) {
+          generated.push(String(n).padStart(padLen, '0'));
+        }
+        return generated;
+      }
+    }
+    return null;
+  };
+
+  const handleSplitStartChange = (val: string) => {
+    const cleaned = (val || '').replace(/\D/g, '');
+    setSplitStartCheque(cleaned);
+    setSplitEndCheque(calculateEndChequeNo(cleaned, bifurcateCount));
+    if (!bifurcateSession && cleaned) {
+      setData(d => ({ ...d, chequeNo: cleaned }));
+    }
+  };
+
+  const handleSplitEndChange = (val: string) => {
+    const cleaned = (val || '').replace(/\D/g, '');
+    setSplitEndCheque(cleaned);
+    if (cleaned) {
+      const start = calculateStartChequeNo(cleaned, bifurcateCount);
+      setSplitStartCheque(start);
+      if (!bifurcateSession && start) {
+        setData(d => ({ ...d, chequeNo: start }));
+      }
+    }
+  };
+
+  const handleSplitCountChange = (count: number) => {
+    setBifurcateCount(count);
+    if (splitStartCheque) {
+      setSplitEndCheque(calculateEndChequeNo(splitStartCheque, count));
+    }
+  };
+
   const promptBifurcationChequeNumbers = (amounts: string[], existing: string[] = []) => {
     const enteredNos: string[] = [];
     for (let i = 0; i < amounts.length; i++) {
-      const current = existing[i] || '';
+      const suggested = existing[i] || (i > 0 && enteredNos[i - 1] ? calculateEndChequeNo(enteredNos[i - 1], 2) : (i === 0 ? splitStartCheque || data.chequeNo || '' : ''));
       const entered = window.prompt(
-        `Enter cheque number for split ${i + 1}/${amounts.length} (₹${amounts[i]}/-) before proceeding:`,
-        current
+        `Enter cheque number for split ${i + 1}/${amounts.length} (₹${amounts[i]}/-) before proceeding:${i === 0 ? '\n(Tip: Or enter range like 001957-001961)' : ''}`,
+        suggested
       );
       if (!entered || !entered.trim()) {
         alert('Bifurcation not started. All cheque numbers are required before proceeding.');
         return null;
       }
+
+      if (i === 0) {
+        const parsed = parseChequeRangeInput(entered, amounts.length);
+        if (parsed && parsed.length === amounts.length) {
+          setSplitStartCheque(parsed[0]);
+          setSplitEndCheque(parsed[parsed.length - 1]);
+          return parsed;
+        }
+      }
+
       const cleaned = entered.trim().replace(/\D/g, '');
       if (!cleaned) {
         alert('Bifurcation not started. Cheque numbers must contain digits.');
@@ -1186,6 +1283,102 @@ export default function App() {
       enteredNos.push(cleaned);
     }
     return enteredNos;
+  };
+
+  const handleStartBifurcation = () => {
+    if (!data.payTo) {
+      setSaveError('Please fill Payee before starting bifurcation.');
+      setTimeout(() => setSaveError(null), 3000);
+      return;
+    }
+    const amounts = buildBifurcationAmounts(bifurcateTotal || data.amountInNumbers, bifurcateCount);
+    if (!amounts) {
+      setSaveError('Invalid total/count for bifurcation.');
+      setTimeout(() => setSaveError(null), 3000);
+      return;
+    }
+
+    const sessionDate = data.date || new Date().toLocaleDateString('en-GB').replace(/\//g, '');
+    dateManuallyEditedRef.current = true;
+    pendingAutoDatePayeeRef.current = null;
+
+    let chequeNos: string[] | null = null;
+    if (splitNumberingMode === 'range') {
+      let start = (splitStartCheque || data.chequeNo || '').trim().replace(/\D/g, '');
+      if (!start) {
+        const entered = window.prompt(
+          `Enter starting cheque number for ${amounts.length} split cheques (e.g. 001957):`,
+          data.chequeNo || ''
+        );
+        if (!entered || !entered.trim()) {
+          setSaveError('Starting cheque number is required to start split range.');
+          setTimeout(() => setSaveError(null), 3000);
+          return;
+        }
+        start = entered.trim().replace(/\D/g, '');
+        if (!start) {
+          setSaveError('Cheque number must contain digits.');
+          setTimeout(() => setSaveError(null), 3000);
+          return;
+        }
+        setSplitStartCheque(start);
+        setSplitEndCheque(calculateEndChequeNo(start, amounts.length));
+      }
+      chequeNos = generateChequeRange(start, amounts.length);
+    } else {
+      chequeNos = promptBifurcationChequeNumbers(amounts, bifurcateSession?.chequeNos || []);
+    }
+
+    if (!chequeNos || chequeNos.length !== amounts.length) return;
+
+    setBifurcateSession({
+      amounts,
+      chequeNos,
+      currentIndex: 0,
+      printedCount: 0,
+      printedRecords: [],
+      payTo: data.payTo || '',
+      date: sessionDate,
+    });
+    const firstAmount = amounts[0] || '';
+    setData(d => ({
+      ...d,
+      date: sessionDate,
+      amountInNumbers: firstAmount,
+      amountInWords: numberToWords(firstAmount),
+      chequeNo: chequeNos![0] || '',
+    }));
+  };
+
+  const reapplyRangeToActiveSplit = () => {
+    if (!bifurcateSession) return;
+    const initialVal = bifurcateSession.chequeNos[0] || splitStartCheque || data.chequeNo || '';
+    const entered = window.prompt(
+      `Enter starting cheque number to re-number all ${bifurcateSession.amounts.length} split cheques in sequence:`,
+      initialVal
+    );
+    if (!entered || !entered.trim()) return;
+    const start = entered.trim().replace(/\D/g, '');
+    if (!start) return;
+    const newNos = generateChequeRange(start, bifurcateSession.amounts.length);
+    setBifurcateSession(prev => {
+      if (!prev) return prev;
+      return { ...prev, chequeNos: newNos };
+    });
+    setSplitStartCheque(start);
+    setSplitEndCheque(calculateEndChequeNo(start, bifurcateSession.amounts.length));
+    if (bifurcateSession.currentIndex >= 0 && newNos[bifurcateSession.currentIndex]) {
+      setData(d => ({ ...d, chequeNo: newNos[bifurcateSession.currentIndex] }));
+    }
+    setSystemToast('Cheque numbers re-numbered in sequence.');
+    setTimeout(() => setSystemToast(null), 2500);
+  };
+
+  const cancelBifurcateSession = () => {
+    setBifurcateSession(null);
+    setData(d => ({ ...d, chequeNo: splitStartCheque || data.chequeNo || '' }));
+    setSystemToast('Split session cancelled.');
+    setTimeout(() => setSystemToast(null), 2500);
   };
 
   const reprintLastBifurcationSplit = () => {
@@ -1478,6 +1671,19 @@ export default function App() {
 
   const removeBatchItem = (id: string) => {
     setBatchQueue(prev => prev.filter(item => item.id !== id));
+  };
+
+  const autoNumberBatchQueue = () => {
+    if (!batchQueue.length) return;
+    const initialVal = batchQueue[0]?.chequeNo || data.chequeNo || '';
+    const entered = window.prompt(`Enter starting cheque number for ${batchQueue.length} queued cheques (e.g. 001957):`, initialVal);
+    if (!entered || !entered.trim()) return;
+    const start = entered.trim().replace(/\D/g, '');
+    if (!start) return;
+    const nos = generateChequeRange(start, batchQueue.length);
+    setBatchQueue(prev => prev.map((item, idx) => ({ ...item, chequeNo: nos[idx] || item.chequeNo })));
+    setSystemToast(`Numbered ${batchQueue.length} batch cheques in sequence.`);
+    setTimeout(() => setSystemToast(null), 2500);
   };
 
   function orderBatchItemsByChequeNo<T extends { chequeNo?: string }>(items: T[]) {
@@ -2180,7 +2386,21 @@ export default function App() {
 
           {batchMode && (
             <div className="batch-panel">
-              <div className="batch-heading"><Layers3 size={16} />Batch queue<span>{batchQueue.length} cheques</span></div>
+              <div className="batch-heading">
+                <Layers3 size={16} />Batch queue<span>{batchQueue.length} cheques</span>
+                {batchQueue.length > 0 && (
+                  <button
+                    type="button"
+                    className="history-btn ghost"
+                    style={{marginLeft: 'auto', padding: '3px 8px', fontSize: '.7rem', minHeight: 26}}
+                    onClick={autoNumberBatchQueue}
+                    title="Number all queued cheques in sequence starting from a cheque number"
+                  >
+                    <Hash size={12} style={{marginRight: 3}} />
+                    Number sequence
+                  </button>
+                )}
+              </div>
               {batchQueue.length === 0 ? (
                  <p className="batch-empty">Build your batch below, then choose Add to batch. You can review every cheque before printing.</p>
               ) : (
@@ -2337,7 +2557,14 @@ export default function App() {
                 id="inputChequeNo"
                 placeholder="e.g. 000123"
                 value={data.chequeNo}
-                onChange={e => setData(d => ({ ...d, chequeNo: (e.target.value || '').replace(/\D/g, '') }))}
+                onChange={e => {
+                  const cleaned = (e.target.value || '').replace(/\D/g, '');
+                  setData(d => ({ ...d, chequeNo: cleaned }));
+                  if (!bifurcateSession) {
+                    setSplitStartCheque(cleaned);
+                    setSplitEndCheque(calculateEndChequeNo(cleaned, bifurcateCount));
+                  }
+                }}
               />
             </div>
           )}
@@ -2416,6 +2643,9 @@ export default function App() {
                   if (!checked) {
                     setBifurcateSession(null);
                     setBifurcateTotal('');
+                  } else if (!splitStartCheque && data.chequeNo) {
+                    setSplitStartCheque(data.chequeNo);
+                    setSplitEndCheque(calculateEndChequeNo(data.chequeNo, bifurcateCount));
                   }
                 }}
               />
@@ -2438,7 +2668,7 @@ export default function App() {
                     className="input-box"
                     aria-label="Number of split cheques"
                     value={String(bifurcateCount)}
-                    onChange={e => setBifurcateCount(parseInt(e.target.value, 10) || 2)}
+                    onChange={e => handleSplitCountChange(parseInt(e.target.value, 10) || 2)}
                   >
                     <option value="2">2 parts</option>
                     <option value="3">3 parts</option>
@@ -2450,60 +2680,121 @@ export default function App() {
                     <option value="9">9 parts</option>
                     <option value="10">10 parts</option>
                   </select>
+                </div>
+
+                <div className="split-mode-selector" role="radiogroup" aria-label="Cheque numbering method">
                   <button
-                    className="history-btn primary"
                     type="button"
-                    onClick={() => {
-                      if (!data.payTo) {
-                        setSaveError('Please fill Payee before starting bifurcation.');
-                        setTimeout(() => setSaveError(null), 3000);
-                        return;
-                      }
-                      const amounts = buildBifurcationAmounts(bifurcateTotal || data.amountInNumbers, bifurcateCount);
-                      if (!amounts) {
-                        setSaveError('Invalid total/count for bifurcation.');
-                        setTimeout(() => setSaveError(null), 3000);
-                        return;
-                      }
-
-                      const sessionDate = data.date || new Date().toLocaleDateString('en-GB').replace(/\//g, '');
-                      dateManuallyEditedRef.current = true;
-                      pendingAutoDatePayeeRef.current = null;
-
-                      const chequeNos = promptBifurcationChequeNumbers(amounts, bifurcateSession?.chequeNos || []);
-                      if (!chequeNos) return;
-                      setBifurcateSession({
-                        amounts,
-                        chequeNos,
-                        currentIndex: 0,
-                        printedCount: 0,
-                        printedRecords: [],
-                        payTo: data.payTo || '',
-                        date: sessionDate,
-                      });
-                      const firstAmount = amounts[0] || '';
-                      setData(d => ({ ...d, date: sessionDate, amountInNumbers: firstAmount, amountInWords: numberToWords(firstAmount), chequeNo: chequeNos[0] || '' }));
-                    }}
+                    className={`split-mode-pill ${splitNumberingMode === 'range' ? 'active' : ''}`}
+                    onClick={() => setSplitNumberingMode('range')}
+                    role="radio"
+                    aria-checked={splitNumberingMode === 'range'}
                   >
-                    Start
+                    <Hash size={13} />
+                    <span>Sequential Range</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`split-mode-pill ${splitNumberingMode === 'individual' ? 'active' : ''}`}
+                    onClick={() => setSplitNumberingMode('individual')}
+                    role="radio"
+                    aria-checked={splitNumberingMode === 'individual'}
+                  >
+                    <ListOrdered size={13} />
+                    <span>One by One (Individual)</span>
                   </button>
                 </div>
+
+                {splitNumberingMode === 'range' ? (
+                  <div className="split-range-controls">
+                    <div className="split-range-inputs">
+                      <div className="split-range-field">
+                        <label htmlFor="splitFromCheque">From cheque no</label>
+                        <input
+                          id="splitFromCheque"
+                          className="input-box"
+                          type="text"
+                          inputMode="numeric"
+                          pattern="\d*"
+                          placeholder="e.g. 001957"
+                          value={splitStartCheque}
+                          onChange={e => handleSplitStartChange(e.target.value)}
+                        />
+                      </div>
+                      <div className="split-range-arrow" aria-hidden="true">→</div>
+                      <div className="split-range-field">
+                        <label htmlFor="splitToEndCheque">To cheque no</label>
+                        <input
+                          id="splitToEndCheque"
+                          className="input-box"
+                          type="text"
+                          inputMode="numeric"
+                          pattern="\d*"
+                          placeholder="e.g. 001961"
+                          value={splitEndCheque || (splitStartCheque ? calculateEndChequeNo(splitStartCheque, bifurcateCount) : '')}
+                          onChange={e => handleSplitEndChange(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div className="split-range-meta">
+                      {splitStartCheque ? (
+                        <span>
+                          Range: <strong>{splitStartCheque}</strong> to <strong>{splitEndCheque || calculateEndChequeNo(splitStartCheque, bifurcateCount)}</strong> ({bifurcateCount} cheques)
+                        </span>
+                      ) : (
+                        <span>Enter starting cheque number. End cheque will auto-calculate.</span>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="split-individual-note">
+                    You will be prompted to enter each cheque number individually when you start.
+                  </div>
+                )}
+
+                <button
+                  className="history-btn primary split-start-btn"
+                  type="button"
+                  onClick={handleStartBifurcation}
+                >
+                  Start Split ({bifurcateCount} Cheques)
+                </button>
+
                 {bifurcateSession && (
-                  <div style={{marginTop:10}}>
+                  <div style={{marginTop: 14}}>
                     <div className="split-progress">
                       Printed {bifurcateSession.printedCount} of {bifurcateSession.amounts.length}.
                       {' '}Current split amount: ₹{bifurcateSession.amounts[bifurcateSession.currentIndex] || '0'} /-
                     </div>
-                    {bifurcateSession.printedCount > 0 && (
+                    <div className="split-session-actions">
+                      {bifurcateSession.printedCount > 0 && (
+                        <button
+                          className="history-btn ghost"
+                          type="button"
+                          onClick={reprintLastBifurcationSplit}
+                        >
+                          Reprint last split
+                        </button>
+                      )}
                       <button
                         className="history-btn ghost"
                         type="button"
-                        onClick={reprintLastBifurcationSplit}
-                        style={{marginBottom:8}}
+                        onClick={reapplyRangeToActiveSplit}
+                        title="Re-number all split cheques in sequence starting from a new cheque number"
                       >
-                        Reprint last split
+                        <Hash size={13} style={{marginRight: 4}} />
+                        Re-number sequence
                       </button>
-                    )}
+                      <button
+                        className="history-btn ghost danger-ghost"
+                        type="button"
+                        onClick={cancelBifurcateSession}
+                        title="Cancel current split session and reset"
+                      >
+                        <X size={13} style={{marginRight: 4}} />
+                        Cancel split
+                      </button>
+                    </div>
                     <div className="split-cheque-grid">
                       {bifurcateSession.amounts.map((amount, index) => (
                         <label key={`${amount}-${index}`} className="split-cheque-field">
