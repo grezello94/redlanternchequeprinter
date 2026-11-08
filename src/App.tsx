@@ -2503,6 +2503,20 @@ export default function App() {
 
           </div>
 
+          <div className="payee-toggles">
+            <label className="checkbox-wrapper" htmlFor="togglePrintName">
+              <input type="checkbox" id="togglePrintName" checked={!data.hidePayee} onChange={e => setData(d => ({ ...d, hidePayee: !e.target.checked }))} />
+              <span className="checkbox-text">Print payee name<small>Include the recipient on the cheque</small></span>
+              <span className="toggle-track" aria-hidden="true"></span>
+            </label>
+
+            <label className="checkbox-wrapper" htmlFor="toggleCrossCheque">
+              <input type="checkbox" id="toggleCrossCheque" checked={!!data.crossCheque} onChange={e => setData(d => ({ ...d, crossCheque: e.target.checked }))} />
+              <span className="checkbox-text">Cross cheque<small>Add two crossing lines</small></span>
+              <span className="toggle-track" aria-hidden="true"></span>
+            </label>
+          </div>
+
           {/* Show last 3 cheques for this payee (between payee and amount) */}
           {recentCheques.length > 0 && (
             <div className="recent-panel">
@@ -2846,17 +2860,6 @@ export default function App() {
 
         <section className="card settings-card" id="print-settings" aria-labelledby="settings-heading">
           <div className="section-header"><div className="section-title"><span className="section-icon"><Settings2 size={18} /></span><div><h2 id="settings-heading">Print preferences</h2><p>Make it yours. See the changes live.</p></div></div><span className="section-index">02</span></div>
-          <div className="toggle-grid">
-          <label className="checkbox-wrapper" htmlFor="togglePrintName">
-            <input type="checkbox" id="togglePrintName" checked={!data.hidePayee} onChange={e => setData(d => ({ ...d, hidePayee: !e.target.checked }))} />
-            <span className="checkbox-text">Print payee name<small>Include the recipient on the cheque</small></span><span className="toggle-track" aria-hidden="true"></span>
-          </label>
-
-          <label className="checkbox-wrapper" htmlFor="toggleCrossCheque">
-            <input type="checkbox" id="toggleCrossCheque" checked={!!data.crossCheque} onChange={e => setData(d => ({ ...d, crossCheque: e.target.checked }))} />
-            <span className="checkbox-text">Cross cheque<small>Add two crossing lines</small></span><span className="toggle-track" aria-hidden="true"></span>
-          </label>
-          </div>
           <div className="field-grid">
 
           <div className="input-wrapper">

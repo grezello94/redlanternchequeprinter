@@ -145,6 +145,8 @@
   .field-grid .input-wrapper { margin-bottom: 0; }
   .details-card > .field-grid { margin-bottom: 22px; }
   .toggle-grid { display: flex; flex-direction: column; margin-bottom: 22px; gap: 9px; }
+  .payee-toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 22px; }
+  .payee-toggles .checkbox-wrapper { margin-bottom: 0; min-height: 52px; }
   .checkbox-wrapper { position: relative; display: flex; align-items: center; gap: 10px; padding: 12px 13px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-input); cursor: pointer; }
   .checkbox-wrapper:hover { border-color: #a3bfea; }
   .checkbox-wrapper input { position: absolute; width: 1px; height: 1px; opacity: 0; }
@@ -361,6 +363,7 @@
     .quick-amounts button { font-size: 10px; min-height: 30px; }
     .quick-amounts > span { font-size: 10px; }
     .field-grid { gap: 12px; }
+    .payee-toggles { grid-template-columns: 1fr; gap: 9px; }
     .checkbox-text { font-size: 12px; }
     .checkbox-text small { font-size: 10px; }
     .toggle-track { width: 35px; height: 20px; }
