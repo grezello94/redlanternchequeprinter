@@ -2360,7 +2360,7 @@ export default function App() {
 
       <main className="container" aria-label="Cheque workspace">
         <div className="form-column">
-        <section className="card details-card" aria-labelledby="details-heading">
+        <section className={`card details-card ${batchMode ? 'mode-batch' : 'mode-single'}`} aria-labelledby="details-heading">
           <div className="section-header"><div className="section-title"><span className="section-icon"><FileText size={18} /></span><div><h2 id="details-heading">Cheque details</h2><p>A few details. A perfectly prepared cheque.</p></div></div><span className="section-index">01</span></div>
 
           <div className="mode-switch" aria-label="Cheque mode">
@@ -2942,7 +2942,7 @@ export default function App() {
 
         <div className="preview-column">
           <section className="card preview-panel" aria-labelledby="preview-heading">
-            <div className="preview-heading"><div className="section-title"><span className="section-icon"><Radio size={18} /></span><h2 id="preview-heading">Live preview</h2></div><span className="live-badge"><span className="status-dot"></span>LIVE</span></div>
+            <div className="preview-heading"><div className="section-title"><span className="section-icon"><Radio size={15} /></span><h2 id="preview-heading">Live preview</h2></div><span className="live-badge"><span className="status-dot"></span>LIVE</span></div>
             <div className="preview-stage">
               <div className="cheque-paper" style={printStyleVars}>
                 <div className="paper-topline"><span>RED LANTERN RESTAURANT</span><span>PAYMENT CHEQUE</span></div>
@@ -2958,9 +2958,25 @@ export default function App() {
                 <div className="paper-micr"><span>{data.chequeNo || '000000'}</span><span>204 × 95 mm</span><span>{data.ifscCode}</span></div>
               </div>
             </div>
-            <div className="preview-caption"><span><ShieldCheck size={14} />{data.crossCheque ? 'Crossed cheque' : 'Standard cheque'}</span><span>{FONT_OPTIONS[selectedPrintFont].label} · {INK_COLOR_OPTIONS[selectedInkColor].label.replace(' (CTS)', '')}</span></div>
-            <div className="readiness-strip"><span className={data.payTo.trim() && Number(data.amountInNumbers) > 0 && data.chequeNo ? 'ready-status complete' : 'ready-status'}><span className="status-dot"></span>{data.payTo.trim() && Number(data.amountInNumbers) > 0 && data.chequeNo ? 'Ready to print' : 'Your cheque is taking shape'}</span><span className="readiness-count">{[!!data.payTo.trim(), Number(data.amountInNumbers) > 0, !!data.chequeNo].filter(Boolean).length}/3 details</span></div>
-            <div className="readiness-checks">{[{ label: 'Payee', done: !!data.payTo.trim() }, { label: 'Amount', done: Number(data.amountInNumbers) > 0 }, { label: 'Cheque no.', done: !!data.chequeNo }].map(item => <span key={item.label} className={item.done ? 'done' : ''}><span>{item.done ? <Check size={10} /> : null}</span>{item.label}</span>)}</div>
+            <div className="preview-footer-compact">
+              <div className="preview-caption-inline">
+                <span className="preview-type-tag">
+                  <ShieldCheck size={13} />
+                  <span>{data.crossCheque ? 'Crossed' : 'Standard'}</span>
+                </span>
+                <span className="preview-font-tag">
+                  {FONT_OPTIONS[selectedPrintFont].label} · {INK_COLOR_OPTIONS[selectedInkColor].label.replace(' (CTS)', '')}
+                </span>
+              </div>
+              <div className="readiness-checks-inline">
+                {[{ label: 'Payee', done: !!data.payTo.trim() }, { label: 'Amount', done: Number(data.amountInNumbers) > 0 }, { label: 'Chq #', done: !!data.chequeNo }].map(item => (
+                  <span key={item.label} className={`readiness-pill ${item.done ? 'done' : ''}`}>
+                    {item.done ? <Check size={10} /> : <span className="readiness-dot"></span>}
+                    {item.label}
+                  </span>
+                ))}
+              </div>
+            </div>
           </section>
 
           <section className="card due-payments-card" id="payment-watch" aria-labelledby="payments-heading">
