@@ -579,6 +579,37 @@
     --border: #d6e0e9;
     --header-surface: #edf2f7;
     --focus-ring: rgba(52, 93, 133, .16);
+
+    /* Section Color Hierarchy */
+    --section-payee: #0d9488;
+    --section-payee-soft: #f0fdfa;
+    --section-payee-border: #99f6e4;
+    --section-payee-ring: rgba(13, 148, 136, 0.2);
+
+    --section-amount: #059669;
+    --section-amount-soft: #ecfdf5;
+    --section-amount-border: #a7f3d0;
+    --section-amount-ring: rgba(5, 150, 105, 0.2);
+
+    --section-chequeno: #0284c7;
+    --section-chequeno-soft: #f0f9ff;
+    --section-chequeno-border: #bae6fd;
+    --section-chequeno-ring: rgba(2, 132, 199, 0.2);
+
+    --section-date: #d97706;
+    --section-date-soft: #fffbeb;
+    --section-date-border: #fde68a;
+    --section-date-ring: rgba(217, 119, 6, 0.2);
+
+    --section-split: #7c3aed;
+    --section-split-soft: #f5f3ff;
+    --section-split-border: #ddd6fe;
+    --section-split-ring: rgba(124, 58, 237, 0.2);
+
+    --section-batch: #4f46e5;
+    --section-batch-soft: #eef2ff;
+    --section-batch-border: #c7d2fe;
+    --section-batch-ring: rgba(79, 70, 229, 0.2);
   }
   :root[data-theme='dark'] {
     --primary: #95b9e0;
@@ -595,6 +626,37 @@
     --nav-surface: #142033;
     --header-surface: #223247;
     --focus-ring: rgba(149, 185, 224, .2);
+
+    /* Section Color Hierarchy (Dark Mode - High Contrast & Vibrancy) */
+    --section-payee: #2dd4bf;
+    --section-payee-soft: rgba(45, 212, 191, 0.08);
+    --section-payee-border: rgba(45, 212, 191, 0.32);
+    --section-payee-ring: rgba(45, 212, 191, 0.3);
+
+    --section-amount: #34d399;
+    --section-amount-soft: rgba(52, 211, 153, 0.09);
+    --section-amount-border: rgba(52, 211, 153, 0.32);
+    --section-amount-ring: rgba(52, 211, 153, 0.3);
+
+    --section-chequeno: #38bdf8;
+    --section-chequeno-soft: rgba(56, 189, 248, 0.08);
+    --section-chequeno-border: rgba(56, 189, 248, 0.32);
+    --section-chequeno-ring: rgba(56, 189, 248, 0.3);
+
+    --section-date: #fbbf24;
+    --section-date-soft: rgba(251, 191, 36, 0.08);
+    --section-date-border: rgba(251, 191, 36, 0.32);
+    --section-date-ring: rgba(251, 191, 36, 0.3);
+
+    --section-split: #a78bfa;
+    --section-split-soft: rgba(167, 139, 250, 0.08);
+    --section-split-border: rgba(167, 139, 250, 0.32);
+    --section-split-ring: rgba(167, 139, 250, 0.3);
+
+    --section-batch: #818cf8;
+    --section-batch-soft: rgba(129, 140, 248, 0.08);
+    --section-batch-border: rgba(129, 140, 248, 0.32);
+    --section-batch-ring: rgba(129, 140, 248, 0.3);
   }
   .app-shell { background: var(--bg-page); }
   .sidebar { background: var(--nav-surface); }
@@ -621,6 +683,165 @@
   .checkbox-wrapper:has(input:checked) { background: var(--accent-teal-soft); border-color: var(--border); }
   .checkbox-wrapper input:checked ~ .toggle-track { background: #16756d; border-color: #16756d; }
   .toggle-track { background: var(--border); }
+
+  /* Section Dots, Badges & Color Hierarchy */
+  .section-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 7px;
+    vertical-align: 0px;
+    flex-shrink: 0;
+  }
+  .dot-payee { background: var(--section-payee); box-shadow: 0 0 6px var(--section-payee); }
+  .dot-amount { background: var(--section-amount); box-shadow: 0 0 6px var(--section-amount); }
+  .dot-chequeno { background: var(--section-chequeno); box-shadow: 0 0 6px var(--section-chequeno); }
+  .dot-date { background: var(--section-date); box-shadow: 0 0 6px var(--section-date); }
+
+  .label-text {
+    display: inline-flex;
+    align-items: center;
+    font-weight: 600;
+  }
+
+  .section-badge {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    line-height: 1.2;
+    text-transform: uppercase;
+  }
+  .badge-payee {
+    background: var(--section-payee-soft);
+    color: var(--section-payee);
+    border: 1px solid var(--section-payee-border);
+  }
+  .badge-amount {
+    background: var(--section-amount-soft);
+    color: var(--section-amount);
+    border: 1px solid var(--section-amount-border);
+  }
+  .badge-sky {
+    background: var(--section-chequeno-soft);
+    color: var(--section-chequeno);
+    border: 1px solid var(--section-chequeno-border);
+  }
+  .badge-amber {
+    background: var(--section-date-soft);
+    color: var(--section-date);
+    border: 1px solid var(--section-date-border);
+  }
+  .badge-split {
+    background: var(--section-split-soft);
+    color: var(--section-split);
+    border: 1px solid var(--section-split-border);
+    margin-left: 8px;
+  }
+
+  /* Form Inputs - Distinct Section Color Accents */
+  .input-payee {
+    border-left: 3px solid var(--section-payee) !important;
+  }
+  .input-payee:hover {
+    border-color: var(--section-payee);
+  }
+  .input-payee:focus {
+    border-color: var(--section-payee) !important;
+    box-shadow: 0 0 0 3px var(--section-payee-ring) !important;
+  }
+
+  .payee-toggles .checkbox-wrapper {
+    background: var(--section-payee-soft);
+    border: 1px solid var(--section-payee-border);
+    transition: all .15s ease;
+  }
+  .payee-toggles .checkbox-wrapper:hover {
+    border-color: var(--section-payee);
+  }
+  .payee-toggles .checkbox-wrapper:has(input:checked) {
+    background: var(--section-payee-soft);
+    border-color: var(--section-payee);
+    box-shadow: 0 0 0 1px var(--section-payee);
+  }
+  .payee-toggles .checkbox-wrapper input:checked ~ .toggle-track {
+    background: var(--section-payee);
+    border-color: var(--section-payee);
+  }
+
+  /* Amount Zone - Financial Emerald */
+  .amount-control .currency-prefix {
+    color: var(--section-amount) !important;
+    font-weight: 700;
+  }
+  .input-amount {
+    border-left: 3px solid var(--section-amount) !important;
+  }
+  .input-amount:hover {
+    border-color: var(--section-amount);
+  }
+  .input-amount:focus {
+    border-color: var(--section-amount) !important;
+    box-shadow: 0 0 0 3px var(--section-amount-ring) !important;
+  }
+  .quick-amounts button {
+    border: 1px solid var(--section-amount-border);
+    background: var(--section-amount-soft);
+    color: var(--section-amount);
+    font-weight: 600;
+    transition: all .15s ease;
+  }
+  .quick-amounts button:hover {
+    border-color: var(--section-amount);
+    background: var(--section-amount);
+    color: #ffffff;
+  }
+  .amount-words-hint {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--section-amount-soft);
+    border: 1px solid var(--section-amount-border);
+    border-left: 3px solid var(--section-amount);
+    border-radius: 7px;
+    padding: 9px 12px;
+    color: var(--section-amount);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.5;
+    margin-top: 11px;
+  }
+  .amount-words-hint .words-icon {
+    flex-shrink: 0;
+    color: var(--section-amount);
+  }
+
+  /* Cheque No & Date Inputs */
+  .input-chequeno {
+    border-left: 3px solid var(--section-chequeno) !important;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .input-chequeno:hover {
+    border-color: var(--section-chequeno);
+  }
+  .input-chequeno:focus {
+    border-color: var(--section-chequeno) !important;
+    box-shadow: 0 0 0 3px var(--section-chequeno-ring) !important;
+  }
+
+  .input-date {
+    border-left: 3px solid var(--section-date) !important;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .input-date:hover {
+    border-color: var(--section-date);
+  }
+  .input-date:focus {
+    border-color: var(--section-date) !important;
+    box-shadow: 0 0 0 3px var(--section-date-ring) !important;
+  }
   .split-panel { background: var(--header-surface); }
   .split-toggle input, .history-select input { accent-color: var(--accent-teal); }
   .connection-card { background: var(--bg-card); }

@@ -2383,12 +2383,15 @@ export default function App() {
           {batchMode && (
             <div className="batch-panel">
               <div className="batch-heading">
-                <Layers3 size={16} />Batch queue<span>{batchQueue.length} cheques</span>
+                <div className="batch-heading-title">
+                  <Layers3 size={16} />
+                  <span>Batch queue</span>
+                  <span className="batch-count-badge">{batchQueue.length} cheques</span>
+                </div>
                 {batchQueue.length > 0 && (
                   <button
                     type="button"
-                    className="history-btn ghost"
-                    style={{marginLeft: 'auto', padding: '3px 8px', fontSize: '.7rem', minHeight: 26}}
+                    className="history-btn ghost batch-seq-btn"
                     onClick={autoNumberBatchQueue}
                     title="Number all queued cheques in sequence starting from a cheque number"
                   >
@@ -2406,8 +2409,8 @@ export default function App() {
                        <input type="checkbox" aria-label={`Select ${item.payTo || 'cheque'}`} checked={item.selected} onChange={e => toggleBatchSelection(item.id, e.target.checked)} />
                        <div className="batch-item-main">
                          <div className="batch-item-title">
-                           {item.payTo || 'Blank'}
-                           <span className="batch-item-meta"> · ₹{item.amountInNumbers}</span>
+                           <span className="batch-item-payee">{item.payTo || 'Blank'}</span>
+                           <span className="batch-item-amount"> · ₹{Number(item.amountInNumbers || 0).toLocaleString('en-IN')}</span>
                            {item.crossCheque && <span className="batch-badge">Crossed</span>}
                          </div>
                          <button
@@ -2436,23 +2439,26 @@ export default function App() {
                          onChange={e => updateBatchItemChequeNo(item.id, e.target.value)}
                          className="batch-number" aria-label={`Cheque number for ${item.payTo || 'blank payee'}`}
                        />
-                       <button onClick={() => removeBatchItem(item.id)} type="button" className="icon-button" aria-label={`Remove ${item.payTo || 'cheque'} from batch`}><X size={16} /></button>
+                       <button onClick={() => removeBatchItem(item.id)} type="button" className="icon-button batch-item-delete" aria-label={`Remove ${item.payTo || 'cheque'} from batch`}><X size={16} /></button>
                      </div>
                    ))}
                  </div>
               )}
               {batchQueue.length > 0 && (
-                <button className="history-btn primary" type="button" style={{marginTop:10, width:'100%', padding: '10px 0', fontSize: '1rem'}} onClick={handleBatchPrint}>
+                <button className="history-btn primary batch-print-btn" type="button" style={{marginTop:10, width:'100%', padding: '10px 0', fontSize: '1rem'}} onClick={handleBatchPrint}>
                   Print Selected ({batchQueue.filter(i => i.selected).length})
                 </button>
               )}
             </div>
           )}
 
-          <div className="input-wrapper" onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setShowSuggestions(false); }}>
-            <label className="input-label" htmlFor="inputPayee">Payee name<span>REQUIRED</span></label>
+          <div className="input-wrapper form-section-payee" onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setShowSuggestions(false); }}>
+            <label className="input-label label-payee" htmlFor="inputPayee">
+              <span className="label-text"><span className="section-dot dot-payee"></span>Payee name</span>
+              <span className="section-badge badge-payee">REQUIRED</span>
+            </label>
             <input
-              className="input-box" type="text" id="inputPayee" placeholder="e.g. Joshua Foods" value={data.payTo} autoComplete="off" aria-required="true"
+              className="input-box input-payee" type="text" id="inputPayee" placeholder="e.g. Joshua Foods" value={data.payTo} autoComplete="off" aria-required="true"
               role="combobox" aria-autocomplete="list" aria-expanded={showSuggestions} aria-controls="payee-suggestions"
               aria-activedescendant={showSuggestions && activePayeeIndex >= 0 && activePayeeIndex < filteredPayees.length ? `payee-option-${activePayeeIndex}` : undefined}
               onChange={e => { setActivePayeeIndex(-1); setShowSuggestions(true); setData(d => ({ ...d, payTo: e.target.value })); }}
@@ -2520,22 +2526,41 @@ export default function App() {
           {/* Show last 3 cheques for this payee (between payee and amount) */}
           {recentCheques.length > 0 && (
             <div className="recent-panel">
-              <div className="recent-heading"><Clock3 size={14} />Recent cheques for this payee</div>
-              {recentCheques.map((c, i) => (
-                <div key={i} className="recent-row">
-                  <span>Date: {c.date ? `${c.date.slice(0,2)}/${c.date.slice(2,4)}/${c.date.slice(4)}` : '--/--/----'}</span>
-                  <span>₹{c.amount}</span>
-                  <span>Chq: {c.chequeNo}</span>
+              <div className="recent-heading">
+                <div className="recent-heading-left">
+                  <Clock3 size={14} />
+                  <span>Recent cheques for this payee</span>
                 </div>
-              ))}
+                <span className="recent-badge">Last {recentCheques.length}</span>
+              </div>
+              <div className="recent-list">
+                {recentCheques.map((c, i) => (
+                  <div key={i} className="recent-row">
+                    <span className="recent-col-date">
+                      <span className="recent-lbl">Date:</span>
+                      <strong>{c.date ? `${c.date.slice(0,2)}/${c.date.slice(2,4)}/${c.date.slice(4)}` : '--/--/----'}</strong>
+                    </span>
+                    <span className="recent-col-amount">
+                      <strong>₹{isNaN(Number(c.amount)) ? c.amount : Number(c.amount).toLocaleString('en-IN')}</strong>
+                    </span>
+                    <span className="recent-col-chq">
+                      <span className="recent-lbl">Chq:</span>
+                      <strong>{c.chequeNo || '—'}</strong>
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
-          <div className="input-wrapper">
-            <label className="input-label" htmlFor="inputAmount">Amount in rupees<span>REQUIRED</span></label>
+          <div className="input-wrapper form-section-amount">
+            <label className="input-label label-amount" htmlFor="inputAmount">
+              <span className="label-text"><span className="section-dot dot-amount"></span>Amount in rupees</span>
+              <span className="section-badge badge-amount">REQUIRED</span>
+            </label>
             <div className="amount-control"><span className="currency-prefix" aria-hidden="true">₹</span>
             <input
-              className="input-box amount-input"
+              className="input-box amount-input input-amount"
               type="text"
               inputMode="numeric"
               pattern="\d*"
@@ -2569,18 +2594,27 @@ export default function App() {
             />
             </div>
             <div className="quick-amounts"><span>Quick amount</span>{['5000', '10000', '25000'].map(amount => <button key={amount} type="button" disabled={!!bifurcateSession} onClick={() => setData(d => ({ ...d, amountInNumbers: amount, amountInWords: numberToWords(amount) }))}>₹{Number(amount).toLocaleString('en-IN')}</button>)}</div>
-            {data.amountInWords && <p className="amount-words-hint" id="amount-words-hint">{data.amountInWords}</p>}
+            {data.amountInWords && (
+              <div className="amount-words-hint" id="amount-words-hint">
+                <Check size={13} className="words-icon" />
+                <span>{data.amountInWords}</span>
+              </div>
+            )}
           </div>
 
-          <div className="field-grid">
-            <div className="input-wrapper">
-              <label className="input-label" htmlFor="inputChequeNo">
-                {bifurcateSession
-                  ? `Cheque number · Split ${bifurcateSession.currentIndex + 1} of ${bifurcateSession.amounts.length}`
-                  : 'Cheque number'}
+          <div className="field-grid form-section-meta">
+            <div className="input-wrapper wrapper-chequeno">
+              <label className="input-label label-chequeno" htmlFor="inputChequeNo">
+                <span className="label-text">
+                  <span className="section-dot dot-chequeno"></span>
+                  {bifurcateSession
+                    ? `Cheque no · Split ${bifurcateSession.currentIndex + 1} of ${bifurcateSession.amounts.length}`
+                    : 'Cheque number'}
+                </span>
+                <span className="section-badge badge-sky">LEAF NO</span>
               </label>
               <input
-                className="input-box"
+                className="input-box input-chequeno"
                 type="text"
                 inputMode="numeric"
                 pattern="\d*"
@@ -2601,7 +2635,7 @@ export default function App() {
             </div>
 
           <div
-            className="input-wrapper"
+            className="input-wrapper wrapper-date"
             onKeyDown={e => { if (e.key === 'Escape') { setDatePickerOpen(false); e.stopPropagation(); } }}
             onBlur={e => {
               if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
@@ -2609,9 +2643,15 @@ export default function App() {
               }
             }}
           >
-            <label className="input-label" htmlFor="inputDate">Cheque date</label>
+            <label className="input-label label-date" htmlFor="inputDate">
+              <span className="label-text">
+                <span className="section-dot dot-date"></span>
+                Cheque date
+              </span>
+              <span className="section-badge badge-amber">SCHEDULE</span>
+            </label>
             <input
-              className="input-box"
+              className="input-box input-date"
               type="text"
               id="inputDate"
               readOnly
@@ -2680,7 +2720,13 @@ export default function App() {
                   }
                 }}
               />
-              <span>Split this amount<small className="split-description">Divide a payment across multiple cheques</small></span>
+              <span className="split-toggle-label">
+                <span className="split-toggle-title">
+                  Split this amount
+                  <span className="section-badge badge-split">MULTI-CHEQUE</span>
+                </span>
+                <small className="split-description">Divide a payment across multiple cheques</small>
+              </span>
             </label>
             {bifurcateEnabled && (
               <div className="split-body">
