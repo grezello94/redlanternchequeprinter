@@ -2296,13 +2296,13 @@ export default function App() {
 
       <div className="page-heading" id="workspace">
         <div><div className="eyebrow"><span></span>YOUR PAYMENT COMMAND CENTRE</div><h1>Precision in every payment<span>.</span></h1><p>Create, preview, and print your cheques. All in one place.</p></div>
-        <button className="outline-button history-shortcut" onClick={() => setHistoryOpen(true)}><Clock3 size={16} />View history<ArrowUpRight size={15} /></button>
+        <button className="outline-button history-shortcut" onClick={() => setHistoryOpen(true)}><Clock3 size={14} />View history<ArrowUpRight size={13} /></button>
       </div>
 
       <div className="workspace-overview" aria-label="Payment overview">
-        <div className="overview-card"><span className="overview-icon mint"><ArrowDownLeft size={19} /></span><div><span className="overview-label">Due this week</span><strong>{historyLoading && !historyRecords.length ? '—' : `₹${duePaymentSections.thisWeekTotal.toLocaleString('en-IN')}`}</strong><small>{duePaymentSections.thisWeek.length} cheques in loaded history</small></div><span className="overview-period">THIS WEEK</span></div>
-        <div className="overview-card"><span className="overview-icon blue"><CalendarDays size={19} /></span><div><span className="overview-label">Upcoming payments</span><strong>{historyLoading && !historyRecords.length ? '—' : `₹${duePaymentSections.upcomingTotal.toLocaleString('en-IN')}`}</strong><small>Next {duePaymentSections.upcoming.length} cheques after this week</small></div><ArrowUpRight className="overview-arrow" size={18} /></div>
-        <button className="overview-card overview-button" onClick={() => setAdminOpen(true)}><span className="overview-icon amber"><Layers3 size={19} /></span><div><span className="overview-label">Pending sync</span><strong>{String(pendingQueue.length).padStart(2, '0')}</strong><small>{pendingQueue.length ? 'Queued locally · view details' : 'No cheques in the local queue'}</small></div><ChevronRight className="overview-arrow" size={18} /></button>
+        <div className="overview-card"><span className="overview-icon mint"><ArrowDownLeft size={16} /></span><div><span className="overview-label">Due this week</span><strong>{historyLoading && !historyRecords.length ? '—' : `₹${duePaymentSections.thisWeekTotal.toLocaleString('en-IN')}`}</strong><small>{duePaymentSections.thisWeek.length} cheques in loaded history</small></div><span className="overview-period">THIS WEEK</span></div>
+        <div className="overview-card"><span className="overview-icon blue"><CalendarDays size={16} /></span><div><span className="overview-label">Upcoming payments</span><strong>{historyLoading && !historyRecords.length ? '—' : `₹${duePaymentSections.upcomingTotal.toLocaleString('en-IN')}`}</strong><small>Next {duePaymentSections.upcoming.length} cheques after this week</small></div><ArrowUpRight className="overview-arrow" size={14} /></div>
+        <button className="overview-card overview-button" onClick={() => setAdminOpen(true)}><span className="overview-icon amber"><Layers3 size={16} /></span><div><span className="overview-label">Pending sync</span><strong>{String(pendingQueue.length).padStart(2, '0')}</strong><small>{pendingQueue.length ? 'Queued locally · view details' : 'No cheques in the local queue'}</small></div><ChevronRight className="overview-arrow" size={14} /></button>
       </div>
 
       {showPrintSetup && (
