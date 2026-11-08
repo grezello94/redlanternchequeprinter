@@ -1642,17 +1642,15 @@ export default function App() {
           currentIndex: printedCount,
         });
         setData(d => ({ ...d, amountInNumbers: nextAmount, amountInWords: numberToWords(nextAmount), chequeNo: nextChequeNo }));
-        setSystemToast(`Added split ${printedCount}/${total} to batch. Next split loaded.`);
-        setTimeout(() => setSystemToast(null), 2200);
+        setSystemToast(`Added split ${printedCount}/${total} (Chq: ${requiredChequeNo}) to batch. Next cheque ${printedCount + 1}/${total} loaded.`);
+        setTimeout(() => setSystemToast(null), 2400);
       } else {
-        setBifurcateSession({
-          ...bifurcateSession,
-          printedCount,
-          printedRecords: nextRecords,
-          currentIndex: total - 1,
-        });
-        setSystemToast('All splits added to batch.');
-        setTimeout(() => setSystemToast(null), 2600);
+        setBifurcateSession(null);
+        setBifurcateEnabled(false);
+        setBifurcateTotal('');
+        setData(d => ({ ...d, payTo: '', amountInNumbers: '', amountInWords: '', chequeNo: '' }));
+        setSystemToast(`All ${total} split cheques added to batch queue! Ready to print.`);
+        setTimeout(() => setSystemToast(null), 3000);
       }
     } else {
       setSystemToast('Added to batch queue.');
@@ -1667,6 +1665,10 @@ export default function App() {
 
   const updateBatchItemChequeNo = (id: string, chequeNo: string) => {
     setBatchQueue(prev => prev.map(item => item.id === id ? { ...item, chequeNo: chequeNo.replace(/\D/g, '') } : item));
+  };
+
+  const updateBatchItemDate = (id: string, date: string) => {
+    setBatchQueue(prev => prev.map(item => item.id === id ? { ...item, date } : item));
   };
 
   const removeBatchItem = (id: string) => {
@@ -2365,20 +2367,14 @@ export default function App() {
             <button
               className={`single-mode ${!batchMode ? 'selected' : ''}`}
               aria-pressed={!batchMode}
-              onClick={() => {
-                setBatchMode(false);
-                setBifurcateSession(null);
-              }}
+              onClick={() => setBatchMode(false)}
             >
               <FileText size={15} />Single cheque
             </button>
             <button
               className={`batch-mode ${batchMode ? 'selected' : ''}`}
               aria-pressed={batchMode}
-              onClick={() => {
-                setBatchMode(true);
-                setBifurcateSession(null);
-              }}
+              onClick={() => setBatchMode(true)}
             >
               <Layers3 size={15} />Batch cheques{batchQueue.length > 0 && <span className="mode-count">{batchQueue.length}</span>}
             </button>
@@ -2414,7 +2410,24 @@ export default function App() {
                            <span className="batch-item-meta"> · ₹{item.amountInNumbers}</span>
                            {item.crossCheque && <span className="batch-badge">Crossed</span>}
                          </div>
-                         <div className="batch-item-meta">{formatPreviewDate(item.date)}</div>
+                         <button
+                           type="button"
+                           className="batch-date-btn"
+                           onClick={() => {
+                             const entered = window.prompt(`Change date for cheque ${item.chequeNo || ''} (DDMMYYYY):`, item.date);
+                             if (!entered || !entered.trim()) return;
+                             const cleaned = entered.replace(/\D/g, '').slice(0, 8);
+                             if (cleaned.length === 8) {
+                               updateBatchItemDate(item.id, cleaned);
+                             } else {
+                               alert('Date must be in DDMMYYYY format (8 digits)');
+                             }
+                           }}
+                           title="Click to change date"
+                         >
+                           <CalendarDays size={12} style={{marginRight: 4}} />
+                           {formatPreviewDate(item.date)}
+                         </button>
                        </div>
                        <input
                          type="text"
@@ -2546,9 +2559,12 @@ export default function App() {
           </div>
 
           <div className="field-grid">
-          {!bifurcateSession && (
             <div className="input-wrapper">
-              <label className="input-label" htmlFor="inputChequeNo">Cheque number</label>
+              <label className="input-label" htmlFor="inputChequeNo">
+                {bifurcateSession
+                  ? `Cheque number · Split ${bifurcateSession.currentIndex + 1} of ${bifurcateSession.amounts.length}`
+                  : 'Cheque number'}
+              </label>
               <input
                 className="input-box"
                 type="text"
@@ -2560,14 +2576,15 @@ export default function App() {
                 onChange={e => {
                   const cleaned = (e.target.value || '').replace(/\D/g, '');
                   setData(d => ({ ...d, chequeNo: cleaned }));
-                  if (!bifurcateSession) {
+                  if (bifurcateSession) {
+                    updateBifurcationChequeNo(bifurcateSession.currentIndex, cleaned);
+                  } else {
                     setSplitStartCheque(cleaned);
                     setSplitEndCheque(calculateEndChequeNo(cleaned, bifurcateCount));
                   }
                 }}
               />
             </div>
-          )}
 
           <div
             className="input-wrapper"
@@ -2763,11 +2780,20 @@ export default function App() {
                 {bifurcateSession && (
                   <div style={{marginTop: 14}}>
                     <div className="split-progress">
-                      Printed {bifurcateSession.printedCount} of {bifurcateSession.amounts.length}.
-                      {' '}Current split amount: ₹{bifurcateSession.amounts[bifurcateSession.currentIndex] || '0'} /-
+                      {batchMode ? (
+                        <span>
+                          Added <strong>{bifurcateSession.printedCount} of {bifurcateSession.amounts.length}</strong> to batch.
+                          {' '}Current: <strong>Split {bifurcateSession.currentIndex + 1}</strong> (Chq: {bifurcateSession.chequeNos[bifurcateSession.currentIndex] || '—'}) · ₹{bifurcateSession.amounts[bifurcateSession.currentIndex] || '0'}/-
+                        </span>
+                      ) : (
+                        <span>
+                          Printed <strong>{bifurcateSession.printedCount} of {bifurcateSession.amounts.length}</strong>.
+                          {' '}Current: <strong>Split {bifurcateSession.currentIndex + 1}</strong> (Chq: {bifurcateSession.chequeNos[bifurcateSession.currentIndex] || '—'}) · ₹{bifurcateSession.amounts[bifurcateSession.currentIndex] || '0'}/-
+                        </span>
+                      )}
                     </div>
                     <div className="split-session-actions">
-                      {bifurcateSession.printedCount > 0 && (
+                      {!batchMode && bifurcateSession.printedCount > 0 && (
                         <button
                           className="history-btn ghost"
                           type="button"
