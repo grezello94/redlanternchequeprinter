@@ -2512,13 +2512,13 @@ export default function App() {
           <div className="payee-toggles">
             <label className="checkbox-wrapper" htmlFor="togglePrintName">
               <input type="checkbox" id="togglePrintName" checked={!data.hidePayee} onChange={e => setData(d => ({ ...d, hidePayee: !e.target.checked }))} />
-              <span className="checkbox-text">Print payee name<small>Include the recipient on the cheque</small></span>
+              <span className="checkbox-text">Print payee name<small>Include on cheque</small></span>
               <span className="toggle-track" aria-hidden="true"></span>
             </label>
 
             <label className="checkbox-wrapper" htmlFor="toggleCrossCheque">
               <input type="checkbox" id="toggleCrossCheque" checked={!!data.crossCheque} onChange={e => setData(d => ({ ...d, crossCheque: e.target.checked }))} />
-              <span className="checkbox-text">Cross cheque<small>Add two crossing lines</small></span>
+              <span className="checkbox-text">Cross cheque<small>Add crossing lines</small></span>
               <span className="toggle-track" aria-hidden="true"></span>
             </label>
           </div>
