@@ -2965,7 +2965,7 @@ export default function App() {
                   <span>{data.crossCheque ? 'Crossed' : 'Standard'}</span>
                 </span>
                 <span className="preview-font-tag">
-                  {FONT_OPTIONS[selectedPrintFont].label} · {INK_COLOR_OPTIONS[selectedInkColor].label.replace(' (CTS)', '')}
+                  {(FONT_OPTIONS[selectedPrintFont] || FONT_OPTIONS[DEFAULT_PRINT_FONT])?.label || 'Courier New'} · {((INK_COLOR_OPTIONS[selectedInkColor] || INK_COLOR_OPTIONS[DEFAULT_INK_COLOR])?.label || 'Navy Blue').replace(' (CTS)', '')}
                 </span>
               </div>
               <div className="readiness-checks-inline">

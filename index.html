@@ -13,6 +13,20 @@
         document.documentElement.dataset.theme = saved === 'light' || saved === 'dark'
           ? saved : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
       } catch { document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+
+      // Auto-reload once if a stale chunk fails to load after a new deployment
+      window.addEventListener('error', function(e) {
+        var msg = e && (e.message || (e.error && e.error.message)) || '';
+        if (msg.indexOf('dynamically imported module') !== -1 ||
+            msg.indexOf('Importing a module script failed') !== -1 ||
+            msg.indexOf('Loading chunk') !== -1) {
+          var key = 'cheque_chunk_reload_' + Math.floor(Date.now() / 60000);
+          if (!sessionStorage.getItem(key)) {
+            sessionStorage.setItem(key, '1');
+            window.location.reload();
+          }
+        }
+      });
     </script>
     <title>Red Lantern · Payment Studio</title>
   </head>
